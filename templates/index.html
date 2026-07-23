@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrowdSense — Crowd Density Analytics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="navbar-inner">
+                <a href="/" class="navbar-brand">
+                    <div class="brand-icon">
+                        <i class="fas fa-people-group"></i>
+                    </div>
+                    <div class="brand-text">
+                        <span class="brand-name">CrowdSense</span>
+                        <span class="brand-tagline">Intelligent Crowd Monitoring</span>
+                    </div>
+                </a>
+                <div class="navbar-actions">
+                    <button class="nav-btn" id="shortcutsBtn" title="Keyboard shortcuts">
+                        <i class="fas fa-keyboard"></i>
+                    </button>
+                    <div class="status-badge" id="statusBadge">
+                        <span id="statusIndicator" class="status-dot"></span>
+                        <span id="statusText" class="status-text">Connecting…</span>
+                    </div>
+                    <span class="mode-badge hidden" id="modeBadge">Demo</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Hero -->
+        <header class="page-header">
+            <div class="page-header-bg"></div>
+            <div class="page-header-inner">
+                <div class="page-header-text">
+                    <span class="section-eyebrow">AI-Powered Crowd Intelligence</span>
+                    <h1>Real-Time Density Estimation &amp; Risk Analysis</h1>
+                    <p>Upload or capture crowd imagery to receive occupancy metrics, heatmap overlays, safety advisories, and exportable reports — in under a second.</p>
+                    <div class="hero-features">
+                        <span><i class="fas fa-bolt"></i> Instant Analysis</span>
+                        <span><i class="fas fa-fire-flame-curved"></i> Heatmap Overlay</span>
+                        <span><i class="fas fa-shield-halved"></i> Risk Scoring</span>
+                        <span><i class="fas fa-chart-line"></i> Session History</span>
+                    </div>
+                </div>
+                <div class="header-metrics">
+                    <div class="header-metric">
+                        <span class="header-metric-value" id="totalAnalysesCount">0</span>
+                        <span class="header-metric-label">Total Analyses</span>
+                    </div>
+                    <div class="header-metric-divider"></div>
+                    <div class="header-metric">
+                        <span class="header-metric-value" id="lastProcessingTime">—</span>
+                        <span class="header-metric-label">Last Response</span>
+                    </div>
+                    <div class="header-metric-divider"></div>
+                    <div class="header-metric">
+                        <span class="header-metric-value" id="systemDevice">CPU</span>
+                        <span class="header-metric-label">Compute</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main -->
+        <main class="main">
+            <!-- Sidebar -->
+            <aside class="panel panel-upload">
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <span class="section-eyebrow">Input Source</span>
+                        <h2>Analyze Crowd Image</h2>
+                    </div>
+
+                    <div class="input-tabs">
+                        <button class="input-tab active" data-tab="upload" id="tabUpload">
+                            <i class="fas fa-cloud-arrow-up"></i> Upload
+                        </button>
+                        <button class="input-tab" data-tab="webcam" id="tabWebcam">
+                            <i class="fas fa-camera"></i> Webcam
+                        </button>
+                    </div>
+
+                    <div id="uploadPanel" class="input-panel">
+                        <p class="input-hint">JPG, PNG, GIF, BMP — max 50 MB</p>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="imageInput" accept="image/*" class="file-input">
+                            <label for="imageInput" class="file-dropzone" id="fileDropzone">
+                                <div class="dropzone-icon">
+                                    <i class="fas fa-cloud-arrow-up"></i>
+                                </div>
+                                <span class="dropzone-title">Drop image here</span>
+                                <span class="dropzone-subtitle">or click to browse files</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="webcamPanel" class="input-panel hidden">
+                        <p class="input-hint">Capture a live frame from your device camera</p>
+                        <div class="webcam-container">
+                            <video id="webcamVideo" autoplay playsinline muted></video>
+                            <canvas id="webcamCanvas" class="hidden"></canvas>
+                            <div id="webcamPlaceholder" class="webcam-placeholder">
+                                <i class="fas fa-video"></i>
+                                <span>Camera not started</span>
+                            </div>
+                        </div>
+                        <div class="webcam-actions">
+                            <button id="startWebcamBtn" class="btn btn-outline btn-sm">
+                                <i class="fas fa-play"></i> Start Camera
+                            </button>
+                            <button id="captureBtn" class="btn btn-outline btn-sm" disabled>
+                                <i class="fas fa-camera"></i> Capture Frame
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="fileInfo" class="file-preview hidden">
+                        <div class="file-preview-icon">
+                            <i class="fas fa-file-image"></i>
+                        </div>
+                        <div class="file-preview-details">
+                            <span class="file-preview-name" id="fileName"></span>
+                            <span class="file-preview-size" id="fileSize"></span>
+                        </div>
+                        <button id="clearFileBtn" class="file-clear-btn" title="Remove file">
+                            <i class="fas fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <button id="analyzeBtn" class="btn btn-primary" disabled>
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                        Run AI Analysis
+                    </button>
+
+                    <div id="loadingSpinner" class="loading-state hidden">
+                        <div class="loading-header">
+                            <div class="spinner"></div>
+                            <span>Processing your image…</span>
+                        </div>
+                        <div class="pipeline-steps">
+                            <div class="pipeline-step" data-step="1">
+                                <span class="pipeline-dot"></span>
+                                <span>Reading image data</span>
+                            </div>
+                            <div class="pipeline-step" data-step="2">
+                                <span class="pipeline-dot"></span>
+                                <span>Detecting crowd patterns</span>
+                            </div>
+                            <div class="pipeline-step" data-step="3">
+                                <span class="pipeline-dot"></span>
+                                <span>Computing density map</span>
+                            </div>
+                            <div class="pipeline-step" data-step="4">
+                                <span class="pipeline-dot"></span>
+                                <span>Generating heatmap &amp; report</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="errorMessage" class="alert alert-error hidden"></div>
+                </div>
+
+                <!-- System Info -->
+                <div class="panel-card system-card">
+                    <div class="panel-header panel-header-row">
+                        <div>
+                            <span class="section-eyebrow">Platform</span>
+                            <h3>System Status</h3>
+                        </div>
+                        <span class="system-pill" id="modelStatusPill">Checking…</span>
+                    </div>
+                    <div class="system-grid">
+                        <div class="system-item">
+                            <i class="fas fa-microchip"></i>
+                            <div>
+                                <span class="system-label">Engine</span>
+                                <span class="system-value" id="systemEngine">—</span>
+                            </div>
+                        </div>
+                        <div class="system-item">
+                            <i class="fas fa-server"></i>
+                            <div>
+                                <span class="system-label">Device</span>
+                                <span class="system-value" id="systemDeviceDetail">—</span>
+                            </div>
+                        </div>
+                        <div class="system-item">
+                            <i class="fas fa-brain"></i>
+                            <div>
+                                <span class="system-label">Model</span>
+                                <span class="system-value" id="systemModel">—</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Session History -->
+                <div class="panel-card">
+                    <div class="panel-header panel-header-row">
+                        <div>
+                            <span class="section-eyebrow">Session</span>
+                            <h3>Analysis History</h3>
+                        </div>
+                        <span class="history-count" id="historyCount">0 runs</span>
+                    </div>
+                    <div class="history-chart-wrap">
+                        <canvas id="historyChart"></canvas>
+                    </div>
+                    <div id="historyList" class="history-list">
+                        <p class="history-empty">No analyses yet this session</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Results -->
+            <section class="panel panel-results">
+                <div id="placeholderContent" class="empty-state">
+                    <div class="empty-state-visual">
+                        <div class="empty-ring empty-ring-1"></div>
+                        <div class="empty-ring empty-ring-2"></div>
+                        <div class="empty-state-icon">
+                            <i class="fas fa-chart-area"></i>
+                        </div>
+                    </div>
+                    <h3>Ready for Analysis</h3>
+                    <p>Upload or capture a crowd image to unlock density estimates, occupancy gauges, risk scoring, and interactive heatmap visualization.</p>
+                    <div class="empty-features">
+                        <div class="empty-feature-card">
+                            <i class="fas fa-gauge-high"></i>
+                            <strong>Occupancy Gauge</strong>
+                            <span>Real-time capacity %</span>
+                        </div>
+                        <div class="empty-feature-card">
+                            <i class="fas fa-sliders"></i>
+                            <strong>Compare Slider</strong>
+                            <span>Before / after view</span>
+                        </div>
+                        <div class="empty-feature-card">
+                            <i class="fas fa-lightbulb"></i>
+                            <strong>AI Advisory</strong>
+                            <span>Safety recommendations</span>
+                        </div>
+                        <div class="empty-feature-card">
+                            <i class="fas fa-file-export"></i>
+                            <strong>Export Reports</strong>
+                            <span>JSON, print &amp; copy</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="resultsContainer" class="results hidden">
+                    <!-- Summary -->
+                    <div class="panel-card results-summary">
+                        <div class="panel-header panel-header-row">
+                            <div>
+                                <span class="section-eyebrow">Analysis Complete</span>
+                                <h2>Executive Summary</h2>
+                            </div>
+                            <div class="result-meta">
+                                <span class="timestamp-badge" id="resultTimestamp"></span>
+                                <span class="processing-badge" id="processingTime"></span>
+                            </div>
+                        </div>
+
+                        <div class="summary-layout">
+                            <div class="gauge-card">
+                                <div class="gauge-ring" id="occupancyGauge">
+                                    <svg viewBox="0 0 120 120">
+                                        <circle class="gauge-bg" cx="60" cy="60" r="52"/>
+                                        <circle class="gauge-fill" id="gaugeFill" cx="60" cy="60" r="52"/>
+                                    </svg>
+                                    <div class="gauge-center">
+                                        <span class="gauge-value" id="occupancyValue">0%</span>
+                                        <span class="gauge-label">Occupancy</span>
+                                    </div>
+                                </div>
+                                <div class="capacity-bar-wrap">
+                                    <div class="capacity-bar-track">
+                                        <div class="capacity-bar-fill" id="capacityBarFill"></div>
+                                    </div>
+                                    <span class="capacity-bar-label" id="capacityBarLabel">0% of estimated max capacity</span>
+                                </div>
+                                <div class="gauge-legend">
+                                    <span><i class="gauge-dot safe"></i> Safe</span>
+                                    <span><i class="gauge-dot warn"></i> Elevated</span>
+                                    <span><i class="gauge-dot danger"></i> Critical</span>
+                                </div>
+                            </div>
+
+                            <div class="kpi-grid">
+                                <div class="kpi-card kpi-count">
+                                    <div class="kpi-icon"><i class="fas fa-users"></i></div>
+                                    <div class="kpi-body">
+                                        <span class="kpi-label">Estimated Count</span>
+                                        <span class="kpi-value" id="crowdCount">—</span>
+                                    </div>
+                                </div>
+                                <div class="kpi-card kpi-level">
+                                    <div class="kpi-icon"><i class="fas fa-signal"></i></div>
+                                    <div class="kpi-body">
+                                        <span class="kpi-label">Density Level</span>
+                                        <span class="kpi-value kpi-badge" id="densityLevel">—</span>
+                                    </div>
+                                </div>
+                                <div class="kpi-card kpi-status alert-card">
+                                    <div class="kpi-icon"><i class="fas fa-shield-halved"></i></div>
+                                    <div class="kpi-body">
+                                        <span class="kpi-label">Safety Status</span>
+                                        <span class="kpi-value" id="alertStatus">—</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="alertBanner" class="alert alert-warning hidden">
+                            <i class="fas fa-triangle-exclamation"></i>
+                            <p id="alertMessage"></p>
+                        </div>
+                    </div>
+
+                    <!-- Recommendations -->
+                    <div class="panel-card">
+                        <div class="panel-header panel-header-row">
+                            <div>
+                                <span class="section-eyebrow">AI Advisory</span>
+                                <h2>Smart Recommendations</h2>
+                            </div>
+                            <span class="rec-count" id="recCount">0 items</span>
+                        </div>
+                        <div id="recommendationsList" class="recommendations-list"></div>
+                    </div>
+
+                    <!-- Advanced Analytics -->
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <span class="section-eyebrow">Deep Insights</span>
+                            <h2>Advanced Analytics</h2>
+                        </div>
+
+                        <div class="analytics-layout">
+                            <div class="analytics-grid">
+                                <div class="analytics-card">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-brain"></i>
+                                        <span>AI Confidence</span>
+                                    </div>
+                                    <div class="progress-track">
+                                        <div class="progress-fill" id="confidenceFill"></div>
+                                    </div>
+                                    <span class="progress-label" id="confidenceValue">0%</span>
+                                </div>
+                                <div class="analytics-card">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-triangle-exclamation"></i>
+                                        <span>Risk Level</span>
+                                    </div>
+                                    <span class="risk-badge" id="riskBadge">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-ruler-combined"></i>
+                                        <span>Density / m²</span>
+                                    </div>
+                                    <span class="analytics-value" id="densityPerSqm">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-expand"></i>
+                                        <span>Crowd Spread</span>
+                                    </div>
+                                    <span class="analytics-value" id="crowdSpread">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-arrow-trend-up"></i>
+                                        <span>Growth Potential</span>
+                                    </div>
+                                    <span class="analytics-value" id="growthPotential">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-gauge-high"></i>
+                                        <span>Max Capacity</span>
+                                    </div>
+                                    <span class="analytics-value" id="maxCapacity">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-door-open"></i>
+                                        <span>Available Space</span>
+                                    </div>
+                                    <span class="analytics-value" id="availableSpace">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-chart-simple"></i>
+                                        <span>Avg Density</span>
+                                    </div>
+                                    <span class="analytics-value" id="avgDensity">—</span>
+                                </div>
+                                <div class="analytics-card analytics-stat">
+                                    <div class="analytics-card-header">
+                                        <i class="fas fa-location-dot"></i>
+                                        <span>Risk Hotspots</span>
+                                    </div>
+                                    <span class="analytics-value" id="riskZonesCount">—</span>
+                                </div>
+                            </div>
+
+                            <div class="distribution-card">
+                                <div class="analytics-card-header">
+                                    <i class="fas fa-chart-pie"></i>
+                                    <span>Zone Distribution</span>
+                                </div>
+                                <canvas id="distributionChart"></canvas>
+                                <div class="distribution-legend">
+                                    <span><i class="dist-dot low"></i> Low <strong id="distLow">0%</strong></span>
+                                    <span><i class="dist-dot med"></i> Medium <strong id="distMed">0%</strong></span>
+                                    <span><i class="dist-dot high"></i> High <strong id="distHigh">0%</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="risk-detail-bar">
+                            <div class="risk-detail-item">
+                                <span class="risk-detail-label">High-Risk Area</span>
+                                <span class="risk-detail-value" id="riskAreaPercentage">—</span>
+                            </div>
+                            <div class="risk-detail-item">
+                                <span class="risk-detail-label">Peak Density</span>
+                                <span class="risk-detail-value" id="maxDensity">—</span>
+                            </div>
+                            <div class="risk-detail-item">
+                                <span class="risk-detail-label">Confidence Score</span>
+                                <span class="risk-detail-value" id="confidenceDetail">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Heatmap -->
+                    <div class="panel-card">
+                        <div class="panel-header panel-header-row">
+                            <div>
+                                <span class="section-eyebrow">Visualization</span>
+                                <h2>Density Heatmap</h2>
+                            </div>
+                            <div class="view-toggle">
+                                <button class="view-btn active" data-view="slider" id="viewSlider">
+                                    <i class="fas fa-sliders"></i> Compare
+                                </button>
+                                <button class="view-btn" data-view="side" id="viewSide">
+                                    <i class="fas fa-columns"></i> Side by Side
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="heatmap-controls">
+                            <label for="heatmapOpacity">
+                                <i class="fas fa-layer-group"></i> Overlay Opacity
+                            </label>
+                            <input type="range" id="heatmapOpacity" min="20" max="100" value="40" class="opacity-slider">
+                            <span id="opacityValue">40%</span>
+                        </div>
+
+                        <div id="sliderView" class="compare-slider">
+                            <div class="compare-container" id="compareContainer">
+                                <img id="sliderOriginal" src="" alt="Original">
+                                <div class="compare-overlay" id="compareOverlay">
+                                    <img id="sliderHeatmap" src="" alt="Heatmap">
+                                </div>
+                                <div class="compare-handle" id="compareHandle">
+                                    <div class="compare-handle-line"></div>
+                                    <div class="compare-handle-grip">
+                                        <i class="fas fa-arrows-left-right"></i>
+                                    </div>
+                                </div>
+                                <span class="compare-label compare-label-left">Original</span>
+                                <span class="compare-label compare-label-right">Density Map</span>
+                            </div>
+                            <p class="compare-hint"><i class="fas fa-hand-pointer"></i> Drag the slider or use <kbd>←</kbd> <kbd>→</kbd> arrow keys to compare</p>
+                        </div>
+
+                        <div id="sideView" class="image-comparison-grid hidden">
+                            <figure class="image-frame">
+                                <figcaption>
+                                    <i class="fas fa-image"></i> Original
+                                    <button class="frame-action" id="fullscreenOriginal" title="Fullscreen"><i class="fas fa-expand"></i></button>
+                                </figcaption>
+                                <img id="originalImage" src="" alt="Original crowd image">
+                            </figure>
+                            <figure class="image-frame">
+                                <figcaption>
+                                    <i class="fas fa-fire-flame-curved"></i> Density Map
+                                    <button class="frame-action" id="fullscreenHeatmap" title="Fullscreen"><i class="fas fa-expand"></i></button>
+                                </figcaption>
+                                <img id="heatmapImage" src="" alt="Density heatmap overlay">
+                            </figure>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="action-bar">
+                        <button id="downloadHeatmapBtn" class="btn btn-outline">
+                            <i class="fas fa-image"></i> Save Heatmap
+                        </button>
+                        <button id="copyReportBtn" class="btn btn-outline">
+                            <i class="fas fa-copy"></i> Copy Report
+                        </button>
+                        <button id="printReportBtn" class="btn btn-outline">
+                            <i class="fas fa-print"></i> Print Report
+                        </button>
+                        <button id="downloadBtn" class="btn btn-outline">
+                            <i class="fas fa-download"></i> Export JSON
+                        </button>
+                        <button id="resetBtn" class="btn btn-primary btn-sm-action">
+                            <i class="fas fa-rotate-right"></i> New Analysis
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <div class="footer-inner">
+                <p>&copy; 2026 CrowdSense. Intelligent crowd monitoring platform.</p>
+                <div class="footer-stack">
+                    <span>Flask</span>
+                    <span>PyTorch</span>
+                    <span>OpenCV</span>
+                    <span>Chart.js</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Fullscreen Modal -->
+    <div id="fullscreenModal" class="modal hidden">
+        <div class="modal-backdrop" id="modalBackdrop"></div>
+        <div class="modal-content">
+            <button class="modal-close" id="modalClose"><i class="fas fa-xmark"></i></button>
+            <img id="modalImage" src="" alt="Fullscreen view">
+        </div>
+    </div>
+
+    <!-- Shortcuts Modal -->
+    <div id="shortcutsModal" class="modal hidden">
+        <div class="modal-backdrop" id="shortcutsBackdrop"></div>
+        <div class="shortcuts-panel">
+            <div class="shortcuts-header">
+                <h3><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h3>
+                <button class="modal-close" id="shortcutsClose"><i class="fas fa-xmark"></i></button>
+            </div>
+            <div class="shortcuts-list">
+                <div class="shortcut-row"><kbd>Ctrl</kbd> + <kbd>R</kbd><span>New analysis</span></div>
+                <div class="shortcut-row"><kbd>Ctrl</kbd> + <kbd>S</kbd><span>Export JSON</span></div>
+                <div class="shortcut-row"><kbd>←</kbd> <kbd>→</kbd><span>Move compare slider</span></div>
+                <div class="shortcut-row"><kbd>Esc</kbd><span>Close modal</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Print Report (hidden) -->
+    <div id="printReport" class="print-report hidden"></div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
