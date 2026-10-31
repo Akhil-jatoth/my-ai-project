@@ -1,37 +1,41 @@
-# Python
+# ── Python ──────────────────────────────────────────────────────────────
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-.venv/
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
+.eggs/
+venv/
+.venv/
+env/
 
-# Flask uploads & outputs
-static/uploads/*
-static/outputs/*
-!static/uploads/.gitkeep
-!static/outputs/.gitkeep
-
-# Model weights (large files)
-model/weights.pth
-model/*.pth
-model/*.pt
-
-# IDE & OS
+# ── IDE ─────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
+*.swo
+
+# ── OS ──────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# Environment
-.env
-.env.local
+# ── Project-specific ────────────────────────────────────────────────────
+.pytest_cache/
+backup_phase1/
+# Uploaded & generated images (user data)
+static/uploads/*
+!static/uploads/.gitkeep
+static/outputs/*
+!static/outputs/.gitkeep
 
-# Jupyter
-.ipynb_checkpoints/
+# Trained model weights (large binary; retrain locally)
+model/weights.pth
+model/train_log.txt
+
+# SQLite database (local history)
+crowdsense.db
+
+# Dataset files (download separately — see data/README.md)
+data/ShanghaiTech/
+data/UCF_CC_50/

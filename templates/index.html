@@ -40,6 +40,11 @@
         <!-- Hero -->
         <header class="page-header">
             <div class="page-header-bg"></div>
+            <!-- Demo-mode notice banner (shown by JS when weights are missing) -->
+            <div id="demoNoticeBanner" class="demo-notice-banner hidden">
+                <i class="fas fa-flask"></i>
+                <span>Demo Mode — Trained MCNN weights are not available. Results are illustrative only and do not reflect real crowd counts.</span>
+            </div>
             <div class="page-header-inner">
                 <div class="page-header-text">
                     <span class="section-eyebrow">AI-Powered Crowd Intelligence</span>
@@ -137,6 +142,13 @@
                         </button>
                     </div>
 
+                    <div class="capacity-field-group">
+                        <label for="sceneCapacityInput" class="capacity-label">
+                            <i class="fas fa-landmark"></i> Venue Capacity <span class="optional-text">(Optional)</span>
+                        </label>
+                        <input type="number" id="sceneCapacityInput" min="1" placeholder="e.g. 500, 2000 (leave empty if unknown)" class="capacity-input">
+                    </div>
+
                     <button id="analyzeBtn" class="btn btn-primary" disabled>
                         <i class="fas fa-wand-magic-sparkles"></i>
                         Run AI Analysis
@@ -204,6 +216,26 @@
                     </div>
                 </div>
 
+                <!-- Model Evaluation & Benchmarks (Phase 5) -->
+                <div class="panel-card model-perf-card">
+                    <div class="panel-header panel-header-row">
+                        <div>
+                            <span class="section-eyebrow">Academic Benchmark</span>
+                            <h3>Model Performance</h3>
+                        </div>
+                        <span class="system-pill" id="perfStatusPill">Pending</span>
+                    </div>
+                    <div id="perfContent" class="perf-content">
+                        <p class="perf-empty" id="perfEmptyMsg">Model evaluation has not been performed yet.</p>
+                        <div id="perfMetricsGrid" class="perf-metrics-grid hidden">
+                            <div class="perf-metric-item"><span class="perf-lbl">Dataset</span><strong id="perfDataset">—</strong></div>
+                            <div class="perf-metric-item"><span class="perf-lbl">Test Images</span><strong id="perfSamples">—</strong></div>
+                            <div class="perf-metric-item"><span class="perf-lbl">MAE</span><strong id="perfMAE">—</strong></div>
+                            <div class="perf-metric-item"><span class="perf-lbl">RMSE</span><strong id="perfRMSE">—</strong></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Session History -->
                 <div class="panel-card">
                     <div class="panel-header panel-header-row">
@@ -211,7 +243,10 @@
                             <span class="section-eyebrow">Session</span>
                             <h3>Analysis History</h3>
                         </div>
-                        <span class="history-count" id="historyCount">0 runs</span>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="history-count" id="historyCount">0 runs</span>
+                            <button id="clearHistoryBtn" title="Clear History" style="background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.8rem; padding: 0.2rem 0.4rem; border-radius: 4px;"><i class="fas fa-trash-can"></i></button>
+                        </div>
                     </div>
                     <div class="history-chart-wrap">
                         <canvas id="historyChart"></canvas>
@@ -303,6 +338,7 @@
                                     <div class="kpi-body">
                                         <span class="kpi-label">Estimated Count</span>
                                         <span class="kpi-value" id="crowdCount">—</span>
+                                        <span class="kpi-uncertainty" id="crowdUncertainty">Uncertainty: ±0</span>
                                     </div>
                                 </div>
                                 <div class="kpi-card kpi-level">
@@ -352,7 +388,7 @@
                                 <div class="analytics-card">
                                     <div class="analytics-card-header">
                                         <i class="fas fa-brain"></i>
-                                        <span>AI Confidence</span>
+                                        <span>Estimation Reliability</span>
                                     </div>
                                     <div class="progress-track">
                                         <div class="progress-fill" id="confidenceFill"></div>
@@ -441,7 +477,7 @@
                                 <span class="risk-detail-value" id="maxDensity">—</span>
                             </div>
                             <div class="risk-detail-item">
-                                <span class="risk-detail-label">Confidence Score</span>
+                                <span class="risk-detail-label">Estimation Reliability</span>
                                 <span class="risk-detail-value" id="confidenceDetail">—</span>
                             </div>
                         </div>
@@ -470,6 +506,18 @@
                             </label>
                             <input type="range" id="heatmapOpacity" min="20" max="100" value="40" class="opacity-slider">
                             <span id="opacityValue">40%</span>
+                        </div>
+
+                        <!-- Heatmap Colormap Scale Legend -->
+                        <div class="heatmap-legend-wrap">
+                            <div class="legend-scale-labels">
+                                <span>Low Density</span>
+                                <span>Moderate</span>
+                                <span>Elevated</span>
+                                <span>Peak Density</span>
+                            </div>
+                            <div class="legend-gradient-bar"></div>
+                            <p class="legend-disclaimer">Heatmap represents relative spatial concentration from the integrated density map, not discrete bounding boxes.</p>
                         </div>
 
                         <div id="sliderView" class="compare-slider">
@@ -505,6 +553,47 @@
                                 </figcaption>
                                 <img id="heatmapImage" src="" alt="Density heatmap overlay">
                             </figure>
+                        </div>
+                    </div>
+
+                    <!-- Spatial Risk Zones & Image Quality Diagnostics (Phases 11 & 13) -->
+                    <div class="panel-card spatial-diagnostics-card">
+                        <div class="panel-header panel-header-row">
+                            <div>
+                                <span class="section-eyebrow">Spatial Analysis & Verification</span>
+                                <h2>High-Density Zones & Quality Diagnostics</h2>
+                            </div>
+                            <span class="system-pill" id="imageQualityBadge">Quality: Normal</span>
+                        </div>
+                        <div class="diagnostics-grid">
+                            <div class="diagnostics-col">
+                                <h4 class="diagnostics-subtitle"><i class="fas fa-cubes-stacked"></i> High-Density Spatial Clusters</h4>
+                                <div id="highDensityZonesList" class="zones-container">
+                                    <p class="diag-empty">No high-density clusters detected in the spatial grid.</p>
+                                </div>
+                            </div>
+                            <div class="diagnostics-col">
+                                <h4 class="diagnostics-subtitle"><i class="fas fa-camera-rotate"></i> Input Verification Metrics</h4>
+                                <div class="quality-stats-grid">
+                                    <div class="quality-stat-item">
+                                        <span class="q-label">Resolution</span>
+                                        <strong id="imgResolution">—</strong>
+                                    </div>
+                                    <div class="quality-stat-item">
+                                        <span class="q-label">Sharpness Score</span>
+                                        <strong id="imgSharpness">—</strong>
+                                    </div>
+                                    <div class="quality-stat-item">
+                                        <span class="q-label">Mean Brightness</span>
+                                        <strong id="imgBrightness">—</strong>
+                                    </div>
+                                    <div class="quality-stat-item">
+                                        <span class="q-label">RMS Contrast</span>
+                                        <strong id="imgContrast">—</strong>
+                                    </div>
+                                </div>
+                                <div id="qualityAdvisoriesList" class="quality-advisories"></div>
+                            </div>
                         </div>
                     </div>
 

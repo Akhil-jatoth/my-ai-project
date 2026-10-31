@@ -1,374 +1,287 @@
-# 👥 AI-Powered Crowd Density Estimation and Monitoring System
+# 👥 CrowdSense — AI-Powered Crowd Density Estimation and Monitoring System
 
-A full-stack web application that automatically estimates the number of people in crowded images using Deep Learning and Computer Vision techniques.
+A full-stack web application that estimates crowd size in images using deep learning density-map estimation. Upload or capture a crowd photograph and receive an interactive dashboard with head-count estimates, heatmap overlays, risk scoring, and safety recommendations.
+
+---
 
 ## 📌 Project Overview
 
-This system uses **density map estimation** instead of traditional object detection to predict crowd counts even in highly congested environments where people overlap or are partially visible.
+Traditional object detection (YOLO, Faster R-CNN) struggles in highly congested scenes where people overlap or are partially visible. **Density-map estimation** bypasses per-person detection entirely: a convolutional neural network produces a continuous density map where each pixel value represents a fractional person count, and the total crowd estimate is simply the pixel sum.
+
+CrowdSense uses the **MCNN** (Multi-Column CNN) architecture with three parallel branches at different receptive-field scales, allowing it to handle crowds at varying distances from the camera.
 
 ### Key Features
 
-✅ **Crowd Count Estimation** - AI-based people counting
-✅ **Density Heatmap Visualization** - Visual representation of crowd density
-✅ **Crowd Density Classification** - Low/Medium/High/Very High levels
-✅ **Overcrowding Alerts** - Real-time overcrowding detection
-✅ **Interactive Web Interface** - User-friendly dashboard
+| Feature | Description |
+|---------|-------------|
+| **Crowd Count** | Estimated number of people via MCNN density map |
+| **Density Heatmap** | Interactive overlay with compare-slider and opacity control |
+| **Density Level** | Low / Medium / High / Very High classification |
+| **Overcrowding Alerts** | Automatic warning when count exceeds configured threshold |
+| **Estimation Reliability** | Heuristic 0–100 score based on density-map variance and image sharpness |
+| **Risk Zone Detection** | Identifies hotspot areas exceeding the 80th-percentile density |
+| **Safety Recommendations** | Rule-based advisory cards |
+| **Webcam Capture** | Analyse a live frame from device camera |
+| **Session History** | Persistent SQLite storage — survives server restarts |
+| **Export** | Download JSON, save heatmap PNG, copy text, print report |
+
+---
 
 ## 🏗️ Architecture
 
 ```
-User Uploads Image
-          ↓
-Frontend (HTML/CSS/JS)
-          ↓
-Flask Backend API
-          ↓
-Image Preprocessing
-          ↓
-Crowd Counting Model (MCNN)
-          ↓
-Density Map Generation
-          ↓
-Count Calculation
-          ↓
-Results Returned
-          ↓
-Display Count + Heatmap
+Browser (HTML / CSS / JS / Chart.js)
+        ↕ Fetch API
+Flask REST API (app.py)
+        ↕
+PyTorch MCNN Model (model/crowd_model.py)
+  + OpenCV (heatmap)
+  + Analytics functions
+        ↕
+SQLite (crowdsense.db) — analysis history
+File system — uploaded images + heatmap outputs
 ```
 
-## 🛠️ Tech Stack
-
-### Backend
-- **Flask** - Web framework
-- **PyTorch** - Deep Learning framework
-- **OpenCV** - Computer Vision library
-- **NumPy** - Numerical computing
-
-### Frontend
-- **HTML5** - Markup
-- **CSS3** - Styling
-- **JavaScript (Vanilla)** - Interactivity
-
-### Machine Learning
-- **MCNN** (Multi-Column CNN) - For crowd density estimation
-- **CNN Architecture** - Multiple columns with different receptive fields
+---
 
 ## 📁 Project Structure
 
 ```
-crowd-density-estimator/
-│
-├── app.py                          # Flask application
+CrowdSense/
+├── app.py                  Flask application (routes + analytics)
+├── config.py               Centralised settings and thresholds
+├── train.py                MCNN training script (ShanghaiTech / UCF_CC_50)
+├── demo.py                 Smoke-test script (requires server running)
+├── requirements.txt        Python dependencies
+├── render.yaml             Render.com deployment config
+├── README.md               This file
 │
 ├── model/
-│   └── crowd_model.py              # MCNN model & prediction logic
+│   ├── __init__.py
+│   ├── crowd_model.py      MCNN architecture + CrowdDensityPredictor
+│   └── weights.pth         Trained weights (only if training has been run)
+│
+├── data/
+│   └── README.md           Dataset download & layout instructions
 │
 ├── templates/
-│   └── index.html                  # Frontend UI
+│   └── index.html          Frontend UI (single-page application)
 │
 ├── static/
-│   ├── css/
-│   │   └── style.css               # Styling
-│   ├── js/
-│   │   └── script.js               # Frontend logic
-│   ├── uploads/                    # User uploaded images
-│   └── outputs/                    # Generated heatmaps
+│   ├── css/style.css       Styling
+│   ├── js/script.js        Frontend logic
+│   ├── uploads/            Uploaded images (generated at runtime)
+│   └── outputs/            Heatmap outputs (generated at runtime)
 │
-├── requirements.txt                # Python dependencies
-└── README.md                       # This file
+└── crowdsense.db           SQLite database (generated at runtime)
 ```
 
-## 🚀 Getting Started
+---
+
+## 🚀 Installation
 
 ### Prerequisites
 
 - Python 3.8+
-- pip (Python package manager)
-- 2GB+ available RAM for model
-- GPU (optional, for faster inference)
+- pip
 
-### Installation
+### Install dependencies
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd crowd-density-estimator
-   ```
-
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   
-   # Activate virtual environment
-   # On Windows:
-   venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Download pre-trained model (Optional)**
-   ```bash
-   # Place downloaded model weights in:
-   model/weights.pth
-   ```
-
-### Running the Application
-
-1. **Start Flask server**
-   ```bash
-   python app.py
-   ```
-
-2. **Open browser**
-   Navigate to: `http://localhost:5000`
-
-3. **Upload image and analyze**
-   - Click on upload area or drag & drop image
-   - Click "Analyze Image" button
-   - View results and density heatmap
-
-## 🧠 How It Works
-
-### Why Density Estimation?
-
-Traditional object detection (YOLO, R-CNN) struggle with:
-- People overlapping each other
-- Partially visible faces
-- Individuals appearing very small
-- Occlusion causing missed detections
-
-Density estimation solves these by:
-- Creating a density map of the crowd
-- Calculating total count by summing pixels
-- Working effectively even with heavy occlusion
-
-### Model Architecture (MCNN)
-
-```
-Input Image (640×480)
-        ↓
-┌───────┼───────┐
-│       │       │
-↓       ↓       ↓
-Col1   Col2   Col3     (3 parallel columns)
-(9×9)  (7×7)  (5×5)    (different kernel sizes)
-│       │       │
-└───────┼───────┘
-        ↓
-  Concatenate
-        ↓
-Density Map (1 channel)
-        ↓
-Count = Sum(pixels)
+```bash
+pip install -r requirements.txt
 ```
 
-### Density Level Classification
+### Install PyTorch (optional but recommended)
 
-| Count    | Level      |
-|----------|-----------|
-| < 50     | Low       |
-| 50-150   | Medium    |
-| 150-300  | High      |
-| > 300    | Very High |
+Without PyTorch the app runs in **Demo mode** — predictions are illustrative only.
 
-## 📊 API Endpoints
+```bash
+# CPU-only (smaller download)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-### 1. Upload & Predict
-**POST** `/api/predict`
-
-**Request:**
-```
-Content-Type: multipart/form-data
-Body: file (image file)
+# Or with CUDA GPU support
+pip install torch torchvision
 ```
 
-**Response:**
+---
+
+## ▶️ Running the Application
+
+```bash
+python app.py
+```
+
+Open your browser at **http://127.0.0.1:5000**
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEBUG` | `false` | Set `true` to enable Flask debug mode |
+| `PORT` | `5000` | Server port |
+
+---
+
+## 🧠 Model Training
+
+The MCNN needs to be **trained** before it can produce meaningful predictions. Without `model/weights.pth`, the app runs in Demo mode.
+
+### Supported datasets
+
+| Dataset | Size | Reference |
+|---------|------|-----------|
+| **ShanghaiTech** (Part A/B) | ~3 000 images, 1.3 M annotations | Zhang et al., CVPR 2016 |
+| **UCF_CC_50** | 50 images, 63–4 543 people each | Idrees et al., CVPR 2013 |
+
+### Steps
+
+1. Download the dataset and place it under `data/` (see `data/README.md` for layout).
+
+2. Run training:
+
+```bash
+# ShanghaiTech Part A
+python train.py --dataset shanghaitech --part A --data-root data/ShanghaiTech
+
+# ShanghaiTech Part B
+python train.py --dataset shanghaitech --part B --data-root data/ShanghaiTech
+
+# UCF_CC_50
+python train.py --dataset ucf --data-root data/UCF_CC_50
+```
+
+3. The best model is saved to `model/weights.pth`. A training log is written to `model/train_log.txt`.
+
+4. Restart the app — it will load the weights automatically and switch from Demo to Trained mode.
+
+> **Note:** MAE / RMSE reported during training are measured on the dataset's own validation split and should not be quoted as general benchmark results without proper evaluation on a held-out test set.
+
+---
+
+## 🔄 Trained vs Demo Mode
+
+| Aspect | Trained Mode | Demo Mode |
+|--------|-------------|-----------|
+| **When** | `model/weights.pth` exists and loads successfully | Weights missing, corrupt, or PyTorch not installed |
+| **Inference** | Real MCNN forward pass | Deterministic synthetic density map (fixed seed) |
+| **Output quality** | Depends on training data and epochs | Illustrative only — **not** a real crowd estimate |
+| **`/api/health` mode** | `"trained"` | `"demo"` |
+| **Dashboard indicator** | **MCNN • Trained Model** | **MCNN • Demo Mode** + yellow banner |
+
+> **Important:** Demo-mode results are clearly labelled in the UI, the API response (`"mode": "demo"`), and the database (`mode` column). They must not be presented as genuine ML predictions.
+
+---
+
+## 📡 API Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/` | Serve the dashboard HTML |
+| `POST` | `/api/predict` | Upload image → crowd analysis → JSON response |
+| `GET` | `/api/health` | Server + model + database status |
+| `GET` | `/api/history` | Last 10 persisted analyses |
+
+### `POST /api/predict` — Response
+
 ```json
 {
   "success": true,
-  "count": 487,
-  "level": "High",
-  "alert": true,
-  "alert_message": "⚠️ OVERCROWDING DETECTED!",
+  "count": 142,
+  "level": "Medium",
+  "alert": false,
+  "alert_message": "✅ Crowd Level Normal",
+  "mode": "trained",
+  "estimation_reliability": 72,
+  "occupancy_percent": 47.3,
+  "density_distribution": { "low": 65.2, "medium": 28.1, "high": 6.7 },
+  "risk_zones": { "risk_level": "Moderate", "risk_area_percentage": 8.4 },
+  "metrics": { "density_per_sqm": 0.46, "crowd_spread_score": 34.2 },
+  "recommendations": [{ "type": "success", "title": "Situation Under Control", "text": "..." }],
   "original_image": "data:image/png;base64,...",
-  "heatmap_image": "data:image/png;base64,..."
+  "heatmap_image": "data:image/png;base64,...",
+  "processing_time": 0.54,
+  "timestamp": "2026-01-15T10:30:00",
+  "demo_notice": null
 }
 ```
 
-### 2. Health Check
-**GET** `/api/health`
+### `GET /api/health` — Response
 
-**Response:**
 ```json
 {
   "status": "healthy",
+  "model": "MCNN",
+  "mode": "trained",
+  "weights_loaded": true,
   "device": "cpu",
-  "model_loaded": true
+  "database": "connected"
 }
 ```
 
-## 🎨 Frontend Features
+---
 
-### Dashboard
-- **Crowd Count** - Estimated number of people
-- **Density Level** - Classification (Low/Medium/High/Very High)
-- **Alert Status** - Overcrowding indicator
-- **Alert Banner** - Visual alert for overcrowding
+## 🗄️ Database
 
-### Image Comparison
-- **Original Image** - User uploaded image
-- **Density Heatmap** - AI-generated heatmap overlay
+CrowdSense uses **SQLite** (`crowdsense.db`) for persistent analysis history.
 
-### Controls
-- **Drag & Drop** - Upload images by dragging
-- **Analyze Button** - Start prediction
-- **Download Results** - Save analysis as JSON
-- **Reset Button** - Clear and start new analysis
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | TEXT | ISO 8601 analysis timestamp |
+| `filename` | TEXT | UUID-based stored filename |
+| `crowd_count` | INTEGER | Estimated count |
+| `density_level` | TEXT | Low / Medium / High / Very High |
+| `risk_level` | TEXT | Moderate / High / Critical |
+| `mode` | TEXT | `trained` or `demo` |
+| `estimation_reliability` | INTEGER | 0–100 heuristic score |
+| `processing_time` | REAL | Seconds |
 
-## 🔧 Configuration
+History is accessible via `GET /api/history` and displayed in the sidebar chart.
 
-### app.py Settings
+---
 
-```python
-# Upload folder
-UPLOAD_FOLDER = 'static/uploads'
+## 🔒 Security
 
-# Output folder
-OUTPUT_FOLDER = 'static/outputs'
+| Measure | Implementation |
+|---------|---------------|
+| File extension validation | Only jpg, jpeg, png, webp accepted |
+| Image integrity check | Pillow `.verify()` on uploaded bytes |
+| UUID filenames | Original filenames are never used on disk |
+| Upload size limit | 16 MB (configurable in `config.py`) |
+| Debug mode off by default | `DEBUG=false`; enable via environment variable |
+| JSON error responses | No Python stack traces exposed to users |
 
-# Max file size
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+---
 
-# Model device
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+## ⚠️ Limitations
 
-# Server port
-PORT = 5000
-```
+These are genuine, honest limitations:
 
-## 📈 Model Performance
+1. **Model accuracy depends entirely on training data.** Without `weights.pth`, all predictions are in Demo mode and meaningless.
+2. **The estimation-reliability score is heuristic** — it measures density-map variance and image sharpness, not a calibrated ML probability.
+3. **Density thresholds are configurable assumptions**, not experimentally validated crowd-safety benchmarks. Tune them for your venue.
+4. **No authentication.** Any user with the URL can access all endpoints.
+5. **Static images only.** Real-time CCTV/video stream processing is not implemented.
+6. **SQLite is local.** History is per-server-instance, not shared across deployments.
+7. **No multi-user isolation.** All uploads and history are shared.
 
-### Training Data Recommendations
-- **ShanghaiTech Dataset** - 3,000 images, 1.3M people
-- **UCF_CC_50** - 50 images, 63-4453 people
-- **WorldExpo Dataset** - 2,415 images
+---
 
-### Expected Accuracy
-- **MAE** (Mean Absolute Error): ±15-20 people
-- **MSE** (Mean Squared Error): ±30-50 people
+## 🔮 Future Enhancements
 
-## 🚀 Future Enhancements
+- Train on larger datasets (ShanghaiTech Part A + B combined)
+- Upgrade to CSRNet or CANNet architectures
+- Real-time video / CCTV stream processing
+- User authentication and per-user history
+- PostgreSQL or cloud database for shared deployments
+- Email/SMS overcrowding alerts
+- Mobile-responsive PWA
 
-### Video Processing
-- Frame-by-frame analysis
-- Real-time crowd tracking
-- Temporal density patterns
-
-### Live CCTV Monitoring
-- Camera feed integration
-- Continuous monitoring
-- Event logging
-
-### Advanced Analytics
-- Peak hour analysis
-- Crowd trend prediction
-- Historical comparisons
-- Statistical reports
-
-### Model Improvements
-- CSRNet architecture
-- CANNet for better accuracy
-- Multi-scale feature fusion
-
-## 📚 Training (Optional)
-
-To train with your own dataset:
-
-```python
-# trainer.py (create this file)
-from model.crowd_model import MCNN
-import torch
-import torch.optim as optim
-
-model = MCNN()
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
-criterion = nn.MSELoss()
-
-# Training loop here
-for epoch in range(num_epochs):
-    for images, density_maps in train_loader:
-        outputs = model(images)
-        loss = criterion(outputs, density_maps)
-        loss.backward()
-        optimizer.step()
-
-torch.save(model.state_dict(), 'model/weights.pth')
-```
-
-## 🐛 Troubleshooting
-
-### Issue: CUDA out of memory
-**Solution:** Use CPU mode or reduce batch size
-```python
-device = 'cpu'
-```
-
-### Issue: Model not loading
-**Solution:** Ensure `model/weights.pth` exists or initialize new model
-
-### Issue: Images not uploading
-**Solution:** Check file size limit and allowed formats
-
-### Issue: Slow predictions
-**Solution:** Use GPU acceleration or reduce image size
-
-## 📄 Resume Description
-
-*AI-Powered Crowd Density Estimation and Monitoring System*
-
-Developed a full-stack web application using HTML, CSS, JavaScript, Flask, PyTorch, and OpenCV to estimate crowd counts in dense scenes using deep-learning-based density map estimation. Implemented heatmap visualization, crowd density classification, and overcrowding alerts. Integrated frontend, backend APIs, and machine learning inference into a deployable web platform.
-
-### Skills Demonstrated
-- ✅ Machine Learning & Deep Learning
-- ✅ Computer Vision & Image Processing
-- ✅ Backend Development (Flask, REST APIs)
-- ✅ Frontend Development (HTML, CSS, JavaScript)
-- ✅ Full-Stack Integration
-- ✅ Model Deployment
+---
 
 ## 📄 License
 
 This project is open source and available under the MIT License.
 
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open Pull Request
-
-## 📞 Support
-
-For issues, questions, or suggestions:
-- Open an issue on GitHub
-- Contact: your-email@example.com
-
-## 🎓 Learning Resources
-
-- **PyTorch Docs**: https://pytorch.org/docs/stable/index.html
-- **Flask Docs**: https://flask.palletsprojects.com/
-- **OpenCV Docs**: https://docs.opencv.org/
-- **CNN Basics**: https://cs231n.github.io/convolutional-networks/
-
 ---
 
-**Built with ❤️ for Computer Vision & Machine Learning**
-
-⭐ If this project helped you, please give it a star!
+**Built with Python, Flask, PyTorch, OpenCV, and Chart.js**

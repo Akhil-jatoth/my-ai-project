@@ -1,0 +1,33 @@
+{
+  "model": "MCNN",
+  "dataset": "shanghaitech",
+  "total_test_images": 182,
+  "mae": 430.76,
+  "rmse": 556.42,
+  "min_error": 66.0,
+  "max_error": 2243.46,
+  "mean_ground_truth": 431.64,
+  "mean_prediction": 0.88,
+  "evaluation_timestamp": "2026-10-31T00:48:52.143258",
+  "weights_path": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth",
+  "training_provenance": {
+    "model_name": "MCNN",
+    "model_version": "1.0.0",
+    "dataset": "shanghaitech",
+    "part": "A",
+    "total_epochs": 20,
+    "best_epoch": 14,
+    "best_val_mae": 430.761,
+    "best_val_rmse": 556.417,
+    "learning_rate": 0.0001,
+    "weight_decay": 1e-05,
+    "batch_size": 8,
+    "random_seed": 42,
+    "crop_size": 256,
+    "loss_function": "euclidean",
+    "train_samples": 300,
+    "val_samples": 182,
+    "trained_timestamp": "2026-10-31T00:47:19.443746",
+    "weights_path": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth"
+  }
+}

@@ -282,6 +282,11 @@ async function analyzeImage() {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
+    const sceneCapacityInput = document.getElementById('sceneCapacityInput');
+    if (sceneCapacityInput && sceneCapacityInput.value.trim()) {
+        formData.append('scene_capacity', sceneCapacityInput.value.trim());
+    }
+
     showLoading(true);
     hideError();
     startPipelineAnimation();
@@ -375,6 +380,29 @@ function updateGauge(percent) {
 function displayResults(prediction) {
     animateCounter(crowdCount, prediction.count);
 
+    // Uncertainty display (Phase 8)
+    const crowdUncertainty = document.getElementById('crowdUncertainty');
+    if (crowdUncertainty && prediction.uncertainty) {
+        crowdUncertainty.textContent = `Uncertainty: ±${prediction.uncertainty.delta} (${prediction.uncertainty.lower_bound} – ${prediction.uncertainty.upper_bound})`;
+    }
+
+    // Show DEMO badge next to the timestamp when in demo mode
+    const isDemo = prediction.mode === 'demo';
+    let existingBadge = document.getElementById('demoResultBadge');
+    if (isDemo) {
+        if (!existingBadge) {
+            existingBadge = document.createElement('span');
+            existingBadge.id = 'demoResultBadge';
+            existingBadge.className = 'demo-result-badge';
+            existingBadge.innerHTML = '<i class="fas fa-flask"></i> DEMO';
+            const meta = document.querySelector('.result-meta');
+            if (meta) meta.appendChild(existingBadge);
+        }
+        existingBadge.classList.remove('hidden');
+    } else if (existingBadge) {
+        existingBadge.classList.add('hidden');
+    }
+
     densityLevel.textContent = prediction.level;
     densityLevel.className = 'kpi-value kpi-badge ' + getLevelClass(prediction.level);
 
@@ -402,19 +430,46 @@ function displayResults(prediction) {
     applyHeatmapOpacity();
 
     if (prediction.timestamp) resultTimestamp.textContent = formatTimestamp(prediction.timestamp);
-    if (prediction.processing_time) {
+    
+    // Timing breakdown (Phase 18)
+    if (prediction.timing_breakdown && prediction.timing_breakdown.total_ms) {
+        const t = prediction.timing_breakdown;
+        const totalSec = (t.total_ms / 1000).toFixed(2);
+        processingTime.textContent = `${totalSec}s (infer: ${t.inference_ms.toFixed(0)}ms)`;
+        lastProcessingTime.textContent = `${totalSec}s`;
+    } else if (prediction.processing_time) {
         processingTime.textContent = prediction.processing_time + 's';
         lastProcessingTime.textContent = prediction.processing_time + 's';
     }
 
-    if (prediction.occupancy_percent !== undefined) updateGauge(prediction.occupancy_percent);
+    // Capacity & Occupancy (Phase 10)
+    if (prediction.scene_capacity) {
+        if (prediction.scene_capacity.configured && prediction.scene_capacity.occupancy_percentage !== null) {
+            updateGauge(prediction.scene_capacity.occupancy_percentage);
+            const barLabel = document.getElementById('capacityBarLabel');
+            if (barLabel) barLabel.textContent = `${prediction.scene_capacity.occupancy_percentage}% of configured venue capacity (${prediction.scene_capacity.capacity.toLocaleString()})`;
+        } else {
+            const fill = document.getElementById('gaugeFill');
+            const value = document.getElementById('occupancyValue');
+            const barFill = document.getElementById('capacityBarFill');
+            const barLabel = document.getElementById('capacityBarLabel');
+            if (fill) fill.style.strokeDashoffset = GAUGE_CIRCUMFERENCE;
+            if (value) value.textContent = 'N/A';
+            if (barFill) barFill.style.width = '0%';
+            if (barLabel) barLabel.textContent = 'Capacity not configured — Occupancy unavailable';
+        }
+    } else if (prediction.occupancy_percent !== undefined) {
+        updateGauge(prediction.occupancy_percent);
+    }
 
-    if (prediction.confidence !== undefined) {
-        document.getElementById('confidenceValue').textContent = prediction.confidence + '%';
-        document.getElementById('confidenceDetail').textContent = prediction.confidence + '%';
+    // Reliability Score (Phase 7)
+    const relScore = prediction.reliability_score ?? prediction.confidence;
+    if (relScore !== undefined) {
+        document.getElementById('confidenceValue').textContent = relScore + '%';
+        document.getElementById('confidenceDetail').textContent = relScore + '%';
         const fill = document.getElementById('confidenceFill');
-        fill.style.width = prediction.confidence + '%';
-        fill.style.background = prediction.confidence > 80 ? 'var(--success)' : prediction.confidence > 60 ? 'var(--warning)' : 'var(--danger)';
+        fill.style.width = relScore + '%';
+        fill.style.background = relScore > 80 ? 'var(--success)' : relScore > 60 ? 'var(--warning)' : 'var(--danger)';
     }
 
     if (prediction.risk_zones) {
@@ -426,6 +481,52 @@ function displayResults(prediction) {
         document.getElementById('maxDensity').textContent = Math.round(rz.max_density).toLocaleString();
         document.getElementById('avgDensity').textContent = Math.round(rz.avg_density).toLocaleString();
         document.getElementById('riskZonesCount').textContent = (rz.risk_zones_count || 0).toLocaleString();
+    }
+
+    // Spatial Risk Zones List (Phase 11)
+    const zonesList = document.getElementById('highDensityZonesList');
+    if (zonesList) {
+        const zones = prediction.spatial_risk_zones || [];
+        if (zones.length > 0) {
+            zonesList.innerHTML = zones.map(z => `
+                <div class="zone-badge-item ${z.severity.toLowerCase()}">
+                    <div>
+                        <strong>Zone ${z.zone}</strong> (${z.severity})
+                        <span style="font-size: 0.72rem; color: var(--text-muted); display: block;">Grid BBox: [${z.bbox.join(', ')}]</span>
+                    </div>
+                    <span style="font-weight: 600;">${z.area_percentage}% of scene</span>
+                </div>
+            `).join('');
+        } else {
+            zonesList.innerHTML = '<p class="diag-empty">No high-density clusters detected in the spatial grid.</p>';
+        }
+    }
+
+    // Image Quality Diagnostics (Phase 13)
+    if (prediction.image_quality) {
+        const q = prediction.image_quality;
+        const badge = document.getElementById('imageQualityBadge');
+        if (badge) {
+            badge.textContent = q.is_low_quality ? 'Quality: Degraded' : 'Quality: Normal';
+            badge.className = 'system-pill ' + (q.is_low_quality ? 'demo' : 'live');
+        }
+        const res = document.getElementById('imgResolution');
+        if (res) res.textContent = `${q.width} × ${q.height}`;
+        const sharp = document.getElementById('imgSharpness');
+        if (sharp) sharp.textContent = Math.round(q.sharpness).toLocaleString();
+        const bright = document.getElementById('imgBrightness');
+        if (bright) bright.textContent = Math.round(q.brightness).toString();
+        const contrast = document.getElementById('imgContrast');
+        if (contrast) contrast.textContent = Math.round(q.contrast).toString();
+
+        const advList = document.getElementById('qualityAdvisoriesList');
+        if (advList) {
+            if (q.advisories && q.advisories.length > 0) {
+                advList.innerHTML = q.advisories.map(a => `<div class="quality-advisory-item"><i class="fas fa-circle-exclamation"></i> ${a}</div>`).join('');
+            } else {
+                advList.innerHTML = '';
+            }
+        }
     }
 
     if (prediction.metrics) {
@@ -568,6 +669,22 @@ async function loadHistory() {
         const data = await response.json();
         renderHistory(data);
     } catch { /* silent */ }
+}
+
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', async () => {
+        if (!confirm('Clear all analysis history records?')) return;
+        try {
+            const res = await fetch('/api/history/clear', { method: 'POST' });
+            if (res.ok) {
+                showToast('History cleared');
+                await loadHistory();
+            }
+        } catch (e) {
+            console.error('Failed to clear history:', e);
+        }
+    });
 }
 
 function renderHistory(data) {
@@ -789,22 +906,42 @@ async function checkServerHealth() {
         const response = await fetch('/api/health');
         if (response.ok) {
             const data = await response.json();
+            // Support both new lowercase mode values ('demo'/'trained') and legacy uppercase
+            const isDemo = (data.mode === 'demo' || data.mode === 'DEMO');
+
             statusDot.classList.remove('offline');
             statusDot.classList.add('pulse');
-            statusText.textContent = data.mode === 'DEMO' ? 'Demo Mode' : 'System Online';
+            statusText.textContent = isDemo ? 'Demo Mode' : 'System Online';
 
             modeBadge.classList.remove('hidden', 'production');
-            modeBadge.textContent = data.mode === 'DEMO' ? 'Demo' : 'Live';
-            if (data.mode !== 'DEMO') modeBadge.classList.add('production');
+            modeBadge.textContent = isDemo ? 'Demo' : 'Live';
+            if (!isDemo) modeBadge.classList.add('production');
 
-            const deviceLabel = data.device?.includes('CUDA') ? 'GPU' : 'CPU';
+            const deviceLabel = (data.device || '').includes('cuda') ? 'GPU' : 'CPU';
             systemDevice.textContent = deviceLabel;
             systemDeviceDetail.textContent = data.device || 'CPU';
-            systemEngine.textContent = data.mode === 'DEMO' ? 'Demo Engine' : 'Neural Network';
-            systemModel.textContent = data.model_loaded ? 'CrowdDensity v1' : 'Mock Predictor';
+            systemEngine.textContent = isDemo ? 'Demo Engine' : 'Neural Network';
 
-            modelStatusPill.textContent = data.mode === 'DEMO' ? 'Demo' : 'Live';
-            modelStatusPill.className = 'system-pill ' + (data.mode === 'DEMO' ? 'demo' : 'live');
+            // Show trained vs demo status clearly (Section 17)
+            if (data.validation_status) {
+                systemModel.textContent = data.validation_status;
+            } else {
+                const weightsLoaded = data.weights_loaded || data.model_loaded;
+                if (weightsLoaded) {
+                    systemModel.textContent = 'MCNN • Trained Model';
+                } else {
+                    systemModel.textContent = 'MCNN • Weights unavailable';
+                }
+            }
+
+            modelStatusPill.textContent = isDemo ? 'Demo' : 'Live';
+            modelStatusPill.className = 'system-pill ' + (isDemo ? 'demo' : 'live');
+
+            // Show or hide the demo notice banner
+            const demoNoticeBanner = document.getElementById('demoNoticeBanner');
+            if (demoNoticeBanner) {
+                demoNoticeBanner.classList.toggle('hidden', !isDemo);
+            }
         } else {
             setOfflineStatus();
         }
@@ -821,9 +958,55 @@ function setOfflineStatus() {
     modelStatusPill.className = 'system-pill demo';
 }
 
+/* =====================================================
+   Model Performance (Phase 5)
+   ===================================================== */
+
+async function loadModelPerformance() {
+    const perfEmptyMsg = document.getElementById('perfEmptyMsg');
+    const perfMetricsGrid = document.getElementById('perfMetricsGrid');
+    const perfStatusPill = document.getElementById('perfStatusPill');
+
+    try {
+        const res = await fetch('/api/model-performance');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'evaluated' && data.metrics) {
+                if (perfStatusPill) {
+                    perfStatusPill.textContent = 'Evaluated';
+                    perfStatusPill.className = 'system-pill live';
+                }
+                if (perfEmptyMsg) perfEmptyMsg.classList.add('hidden');
+                if (perfMetricsGrid) {
+                    perfMetricsGrid.classList.remove('hidden');
+                    document.getElementById('perfDataset').textContent = data.metrics.dataset || 'Benchmark';
+                    document.getElementById('perfSamples').textContent = data.metrics.evaluated_samples || '—';
+                    document.getElementById('perfMAE').textContent = data.metrics.mae != null ? data.metrics.mae.toFixed(2) : '—';
+                    document.getElementById('perfRMSE').textContent = data.metrics.rmse != null ? data.metrics.rmse.toFixed(2) : '—';
+                }
+                return;
+            }
+        }
+    } catch (e) {
+        console.log('Model performance fetch error:', e);
+    }
+
+    // Default to un-evaluated state if no metrics file exists
+    if (perfStatusPill) {
+        perfStatusPill.textContent = 'Pending';
+        perfStatusPill.className = 'system-pill demo';
+    }
+    if (perfEmptyMsg) {
+        perfEmptyMsg.classList.remove('hidden');
+        perfEmptyMsg.textContent = 'Model evaluation has not been performed yet.';
+    }
+    if (perfMetricsGrid) perfMetricsGrid.classList.add('hidden');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     checkServerHealth();
     loadHistory();
+    loadModelPerformance();
     setInterval(checkServerHealth, 30000);
 });
 

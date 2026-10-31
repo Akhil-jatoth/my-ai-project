@@ -1,0 +1,14 @@
+{
+  "evaluated": true,
+  "model": "MCNN",
+  "model_version": "1.0.0",
+  "total_test_images": 182,
+  "mae": 430.76,
+  "rmse": 556.42,
+  "min_error": 66.0,
+  "max_error": 2243.46,
+  "mean_ground_truth": 431.64,
+  "mean_prediction": 0.88,
+  "evaluation_timestamp": "2026-10-31T00:48:52.143258",
+  "device": "cpu"
+}

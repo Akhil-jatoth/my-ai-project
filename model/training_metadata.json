@@ -1,0 +1,21 @@
+{
+  "model_name": "MCNN",
+  "model_version": "1.0.0",
+  "dataset": "shanghaitech",
+  "part": "A",
+  "total_epochs": 1,
+  "best_epoch": 1,
+  "best_val_mae": 2553.926,
+  "best_val_rmse": 2921.146,
+  "learning_rate": 0.0001,
+  "weight_decay": 1e-05,
+  "batch_size": 8,
+  "random_seed": 42,
+  "crop_size": 256,
+  "loss_function": "euclidean",
+  "train_samples": 270,
+  "val_samples": 30,
+  "official_test_samples": 182,
+  "trained_timestamp": "2026-10-31T01:13:12.687124",
+  "weights_path": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth"
+}
