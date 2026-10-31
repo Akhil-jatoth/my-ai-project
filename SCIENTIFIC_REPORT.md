@@ -228,18 +228,24 @@ else:
 
 ### 7.1 Quantitative Epoch-by-Epoch Convergence Table
 
-The quantitative metrics recorded across training epochs are documented below:
+The quantitative metrics recorded across the full 50 training epochs are documented below (sampled milestones):
 
-| Epoch | Train Loss (Euclidean) | Val Loss (MSE) | Val MAE | Val RMSE | Mean Pred | Median Pred | Gradient Norm | Time / Epoch |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1** | 87.5319 | 0.000592 | 2,553.93 | 2,921.15 | 2,918.62 | 2,629.70 | 3,541.39 | 49.1 s |
-| **2** | **20.0936** | **0.000535** | **535.38** | **719.87** | **709.24** | **553.05** | **863.61** | 45.9 s |
+| Epoch | Train Loss (Euclidean) | Val Loss (MSE) | Val MAE | Val RMSE | Mean Pred | Val GT Mean | Zero Pct | Grad Norm | Time / Epoch |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **1** | 160.7234 | 0.000870 | 4,283.88 | 4,831.42 | 4,681.49 | 444.0 | 0.0% | 5,570.18 | 56.5 s |
+| **5** | 12.0753 | 0.000300 | 1,153.50 | 1,456.89 | 1,430.64 | 444.0 | 0.0% | 664.19 | 55.2 s |
+| **10** | 3.6748 | 0.000100 | 1,603.77 | 1,713.24 | 1,952.55 | 444.0 | 0.0% | 761.33 | 38.4 s |
+| **20** | 1.3411 | 0.000040 | 582.49 | 674.45 | 903.68 | 444.0 | 0.0% | 155.08 | 38.1 s |
+| **30** | 1.0093 | 0.000033 | 325.28 | 460.04 | 602.92 | 444.0 | 0.0% | 118.67 | 45.3 s |
+| **36 (Best)** | **0.9504** | **0.000034** | **235.62** | **422.95** | **390.73** | **444.0** | **0.0%** | **143.24** | **31.1 s** |
+| **40** | 0.9225 | 0.000031 | 249.41 | 421.17 | 457.62 | 444.0 | 0.0% | 104.78 | 42.9 s |
+| **50** | 0.8785 | 0.000030 | 787.91 | 854.72 | 1,144.55 | 444.0 | 0.0% | 134.46 | 38.9 s |
 
 ### 7.2 Convergence Analysis
-1. **Loss Reduction:** Training loss dropped sharply by **77.05%** from $87.53$ down to $20.09$ between Epoch 1 and Epoch 2.
-2. **Validation Error Reduction:** Validation MAE improved from $2,553.93$ to $535.38$ (an improvement of $2,018.55$ points or **79.04%**), and RMSE decreased from $2,921.15$ to $719.87$.
-3. **Escaping the Zero-Collapse Trap:** Unlike earlier models that collapsed to $0.00$, the linear-fusion architecture produces outputs in the real crowd scale (Mean prediction: $709.24$, Median: $553.05$).
-4. **Gradient Stabilization:** Average gradient norm dropped from $3,541.39$ to $863.61$, indicating the network moved past initialization transients into a stable descent basin.
+1. **Loss Reduction:** Training loss dropped from $160.72$ down to $0.88$ (a reduction of **99.45%**).
+2. **Validation Error Reduction:** Validation MAE improved from an initial $4,283.88$ down to **235.62** at Epoch 36 (a **94.50%** improvement), with Val RMSE decreasing to $422.95$.
+3. **Zero-Collapse Elimination:** Percentage of near-zero predictions ($<1.0$) remained strictly **0.0%** throughout all 50 epochs.
+4. **Checkpoint Preservation:** The best validation checkpoint was saved at Epoch 36 to `model/weights.pth`.
 
 ---
 
@@ -252,12 +258,17 @@ $$\text{MAE} = \frac{1}{M} \sum_{k=1}^M |\hat{C}_k - C_k^{\text{GT}}|$$
 
 $$\text{RMSE} = \sqrt{\frac{1}{M} \sum_{k=1}^M (\hat{C}_k - C_k^{\text{GT}})^2}$$
 
-### 8.2 Summary Performance Ledger
+### 8.2 Summary Performance Ledger (Untouched 182-Image Test Set)
 
-| Benchmark Split | Sample Size | Mean Ground Truth | Mean Prediction | MAE | RMSE | Checkpoint Used |
-| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Validation Subset (train_data)** | 30 | ~431.6 | 709.2 | **535.38** | **719.87** | Epoch 2 Checkpoint |
-| **Official Benchmark (test_data)** | 182 | ~431.6 | ~428.0 | *Evaluated per-sample* | *Evaluated per-sample* | `model/weights.pth` |
+| Benchmark Metric | Trained MCNN | Training Constant-Mean Baseline | Relative Improvement |
+| :--- | :---: | :---: | :---: |
+| **Mean Absolute Error (MAE)** | **205.83** | 303.50 | **-97.67 (-32.18%)** |
+| **Root Mean Squared Error (RMSE)** | **302.98** | 368.69 | **-65.71 (-17.82%)** |
+| **Median Absolute Error** | **139.92** | 225.38 | **-85.46 (-37.92%)** |
+| **Mean Count Estimate** | **369.19** (GT: 431.64) | 541.38 | Closer to true mean |
+| **Zero/Near-Zero Predictions** | **0 / 182 (0.0%)** | — | Fully active |
+| **Pearson Correlation ($r$)** | **0.5515** | 0.0000 | Statistically significant positive correlation |
+| **Best Single Prediction Error** | **1.64 heads** (`IMG_28.jpg`, 0.39% error) | — | Highly accurate on medium crowds |
 
 ---
 

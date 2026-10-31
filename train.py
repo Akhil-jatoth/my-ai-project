@@ -364,6 +364,7 @@ def evaluate_loader(model: nn.Module, loader: DataLoader, device: str) -> dict:
     model.eval()
     mae_total, mse_total, val_loss_total, n = 0.0, 0.0, 0.0, 0
     all_preds_list = []
+    all_gts_list = []
     criterion = nn.MSELoss()
 
     with torch.no_grad():
@@ -385,18 +386,26 @@ def evaluate_loader(model: nn.Module, loader: DataLoader, device: str) -> dict:
             mse_total += (diff ** 2).sum()
             n         += len(diff)
             all_preds_list.extend(pred_counts.tolist())
+            all_gts_list.extend(gt_counts.tolist())
 
     model.train()
     sample_count = max(n, 1)
     preds_arr = np.array(all_preds_list) if all_preds_list else np.zeros(1)
+    gts_arr   = np.array(all_gts_list) if all_gts_list else np.zeros(1)
+    zero_count = int(np.sum(preds_arr < 1.0))
+    zero_pct = float(zero_count / sample_count * 100.0)
+
     return {
         'val_loss':    val_loss_total / sample_count,
         'mae':         mae_total / sample_count,
         'rmse':        math.sqrt(mse_total / sample_count),
         'mean_pred':   float(np.mean(preds_arr)),
+        'mean_gt':     float(np.mean(gts_arr)),
         'median_pred': float(np.median(preds_arr)),
         'min_pred':    float(np.min(preds_arr)),
         'max_pred':    float(np.max(preds_arr)),
+        'zero_count':  zero_count,
+        'zero_pct':    zero_pct,
         'count':       n,
     }
 
@@ -479,11 +488,17 @@ def train(args):
 
     with open(log_path, 'w', encoding='utf-8') as log_file, \
          open(history_csv_path, 'w', encoding='utf-8') as csv_file:
-        header = 'epoch,train_loss,val_loss,val_mae,val_rmse,mean_pred,median_pred,min_pred,max_pred,grad_norm,time_sec\n'
+        header = 'epoch,train_loss,val_loss,val_mae,val_rmse,mean_pred,mean_gt,zero_pct,min_pred,max_pred,grad_norm,time_sec\n'
         log_file.write(header)
         csv_file.write(header)
 
         for epoch in range(1, args.epochs + 1):
+            # Short 3-epoch warmup
+            if epoch <= 3:
+                warmup_lr = args.lr * (epoch / 3.0)
+                for pg in optimizer.param_groups:
+                    pg['lr'] = warmup_lr
+
             model.train()
             epoch_loss = 0.0
             epoch_grads = []
@@ -505,7 +520,9 @@ def train(args):
 
                 epoch_loss += loss.item() * imgs.size(0)
 
-            scheduler.step()
+            if epoch > 3:
+                scheduler.step()
+
             train_loss = epoch_loss / max(len(train_ds), 1)
             mean_grad_norm = float(np.mean(epoch_grads)) if epoch_grads else 0.0
             elapsed    = time.time() - t0
@@ -521,20 +538,25 @@ def train(args):
                 f"Val Loss: {val_loss:.5f} | "
                 f"Val MAE: {val_mae:.2f} | "
                 f"Val RMSE: {val_rmse:.2f} | "
-                f"Mean Pred: {val_metrics['mean_pred']:.2f} | "
+                f"Mean Pred: {val_metrics['mean_pred']:.2f} (GT: {val_metrics['mean_gt']:.1f}) | "
+                f"Zero Pct: {val_metrics['zero_pct']:.1f}% | "
                 f"Grad Norm: {mean_grad_norm:.2f} | "
                 f"Time: {elapsed:.1f}s"
             )
             line = (
                 f"{epoch},{train_loss:.6f},{val_loss:.6f},{val_mae:.4f},{val_rmse:.4f},"
-                f"{val_metrics['mean_pred']:.2f},{val_metrics['median_pred']:.2f},"
-                f"{val_metrics['min_pred']:.2f},{val_metrics['max_pred']:.2f},"
+                f"{val_metrics['mean_pred']:.2f},{val_metrics['mean_gt']:.2f},"
+                f"{val_metrics['zero_pct']:.1f},{val_metrics['min_pred']:.2f},{val_metrics['max_pred']:.2f},"
                 f"{mean_grad_norm:.4f},{elapsed:.1f}\n"
             )
             log_file.write(line)
             log_file.flush()
             csv_file.write(line)
             csv_file.flush()
+
+            # Zero-collapse guard
+            if epoch >= 5 and val_metrics['zero_pct'] >= 80.0:
+                log.warning(f"⚠️ Zero-collapse warning: {val_metrics['zero_pct']:.1f}% of validation predictions are < 1.0!")
 
             # Save strictly when validation MAE improves on the 30-sample validation subset
             if val_mae < best_mae:
