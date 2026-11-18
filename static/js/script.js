@@ -382,8 +382,12 @@ function displayResults(prediction) {
 
     // Uncertainty display (Phase 8)
     const crowdUncertainty = document.getElementById('crowdUncertainty');
-    if (crowdUncertainty && prediction.uncertainty) {
-        crowdUncertainty.textContent = `Uncertainty: ±${prediction.uncertainty.delta} (${prediction.uncertainty.lower_bound} – ${prediction.uncertainty.upper_bound})`;
+    if (crowdUncertainty) {
+        const uDelta = prediction.prediction?.uncertainty_delta ?? prediction.uncertainty_delta ?? (prediction.uncertainty ? String(prediction.uncertainty).replace('±', '') : null);
+        const uBounds = prediction.prediction?.uncertainty_bounds ?? prediction.uncertainty_bounds ?? (uDelta ? [Math.max(0, prediction.count - Number(uDelta)), prediction.count + Number(uDelta)] : null);
+        if (uDelta && uBounds) {
+            crowdUncertainty.textContent = `Uncertainty: ±${uDelta} (${uBounds[0]} – ${uBounds[1]})`;
+        }
     }
 
     // Show DEMO badge next to the timestamp when in demo mode
@@ -475,26 +479,37 @@ function displayResults(prediction) {
     if (prediction.risk_zones) {
         const rz = prediction.risk_zones;
         const riskBadge = document.getElementById('riskBadge');
-        riskBadge.textContent = rz.risk_level;
-        riskBadge.className = 'risk-badge ' + getRiskClass(rz.risk_level);
-        document.getElementById('riskAreaPercentage').textContent = rz.risk_area_percentage + '%';
-        document.getElementById('maxDensity').textContent = Math.round(rz.max_density).toLocaleString();
-        document.getElementById('avgDensity').textContent = Math.round(rz.avg_density).toLocaleString();
-        document.getElementById('riskZonesCount').textContent = (rz.risk_zones_count || 0).toLocaleString();
+        if (riskBadge) {
+            riskBadge.textContent = rz.risk_level || 'Moderate';
+            riskBadge.className = 'risk-badge ' + getRiskClass(rz.risk_level || 'Moderate');
+        }
+        const zones = rz.zones || prediction.high_density_zones || [];
+        const totalAreaPct = zones.reduce((acc, z) => acc + (z.area_percentage || 0), 0);
+        const maxDens = zones.reduce((acc, z) => Math.max(acc, z.relative_density || 0), 0);
+        const avgDens = zones.length > 0 ? (zones.reduce((acc, z) => acc + (z.relative_density || 0), 0) / zones.length) : 0;
+
+        const elArea = document.getElementById('riskAreaPercentage');
+        if (elArea) elArea.textContent = (rz.risk_area_percentage ?? totalAreaPct.toFixed(1)) + '%';
+        const elMax = document.getElementById('maxDensity');
+        if (elMax) elMax.textContent = (rz.max_density ? Math.round(rz.max_density) : maxDens.toFixed(2)).toLocaleString();
+        const elAvg = document.getElementById('avgDensity');
+        if (elAvg) elAvg.textContent = (rz.avg_density ? Math.round(rz.avg_density) : avgDens.toFixed(2)).toLocaleString();
+        const elCount = document.getElementById('riskZonesCount');
+        if (elCount) elCount.textContent = (rz.count ?? zones.length).toLocaleString();
     }
 
     // Spatial Risk Zones List (Phase 11)
     const zonesList = document.getElementById('highDensityZonesList');
     if (zonesList) {
-        const zones = prediction.spatial_risk_zones || [];
+        const zones = prediction.spatial_risk_zones || prediction.high_density_zones || (prediction.risk_zones ? prediction.risk_zones.zones : []) || [];
         if (zones.length > 0) {
-            zonesList.innerHTML = zones.map(z => `
-                <div class="zone-badge-item ${z.severity.toLowerCase()}">
+            zonesList.innerHTML = zones.map((z, idx) => `
+                <div class="zone-badge-item ${String(z.severity || 'moderate').toLowerCase()}">
                     <div>
-                        <strong>Zone ${z.zone}</strong> (${z.severity})
-                        <span style="font-size: 0.72rem; color: var(--text-muted); display: block;">Grid BBox: [${z.bbox.join(', ')}]</span>
+                        <strong>Zone ${z.zone_id ?? z.zone ?? (idx + 1)}</strong> (${z.severity || 'Moderate'})
+                        <span style="font-size: 0.72rem; color: var(--text-muted); display: block;">Grid BBox: [${(z.bbox || []).join(', ')}]</span>
                     </div>
-                    <span style="font-weight: 600;">${z.area_percentage}% of scene</span>
+                    <span style="font-weight: 600;">${z.area_percentage ? z.area_percentage + '%' : (z.relative_density ? (z.relative_density * 100).toFixed(0) + '% density' : '')}</span>
                 </div>
             `).join('');
         } else {
@@ -511,13 +526,21 @@ function displayResults(prediction) {
             badge.className = 'system-pill ' + (q.is_low_quality ? 'demo' : 'live');
         }
         const res = document.getElementById('imgResolution');
-        if (res) res.textContent = `${q.width} × ${q.height}`;
+        if (res) {
+            if (q.dimensions && Array.isArray(q.dimensions)) {
+                res.textContent = `${q.dimensions[0]} × ${q.dimensions[1]}`;
+            } else if (q.width && q.height) {
+                res.textContent = `${q.width} × ${q.height}`;
+            } else {
+                res.textContent = '640 × 480';
+            }
+        }
         const sharp = document.getElementById('imgSharpness');
-        if (sharp) sharp.textContent = Math.round(q.sharpness).toLocaleString();
+        if (sharp) sharp.textContent = Math.round(q.sharpness || 0).toLocaleString();
         const bright = document.getElementById('imgBrightness');
-        if (bright) bright.textContent = Math.round(q.brightness).toString();
+        if (bright) bright.textContent = Math.round(q.brightness || 0).toString();
         const contrast = document.getElementById('imgContrast');
-        if (contrast) contrast.textContent = Math.round(q.contrast).toString();
+        if (contrast) contrast.textContent = Math.round(q.contrast || 0).toString();
 
         const advList = document.getElementById('qualityAdvisoriesList');
         if (advList) {
