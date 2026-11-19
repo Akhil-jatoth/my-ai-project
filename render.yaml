@@ -1,11 +1,14 @@
 services:
   - type: web
-    name: crowd-density-estimator
+    name: crowdsense
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.11
       - key: PYTHONIOENCODING
         value: utf-8
+      - key: FLASK_ENV
+        value: production
