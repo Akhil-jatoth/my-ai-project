@@ -21,10 +21,11 @@ RANDOM_SEED = 42
 BASE_DIR            = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER       = os.path.join(BASE_DIR, 'static', 'uploads')
 OUTPUT_FOLDER       = os.path.join(BASE_DIR, 'static', 'outputs')
+RESULTS_DIR         = os.path.join(BASE_DIR, 'results')
 MODEL_DIR           = os.path.join(BASE_DIR, 'model')
 MODEL_WEIGHTS_PATH  = os.path.join(MODEL_DIR, 'weights.pth')
 TRAINING_META_PATH  = os.path.join(MODEL_DIR, 'training_metadata.json')
-EVALUATION_METRICS_PATH = os.path.join(MODEL_DIR, 'evaluation_metrics.json')
+EVALUATION_METRICS_PATH = os.path.join(RESULTS_DIR, 'metrics.json')
 DATABASE_PATH       = os.path.join(BASE_DIR, 'crowdsense.db')
 DATASET_PATH        = os.path.join(BASE_DIR, 'data', 'ShanghaiTech')
 

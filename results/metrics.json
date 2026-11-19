@@ -1,0 +1,128 @@
+{
+  "evaluated": true,
+  "model": "MCNN",
+  "mae": 205.83,
+  "rmse": 302.98,
+  "mape": 58.28,
+  "median_absolute_error": 139.92,
+  "pearson_correlation": 0.5515,
+  "mean_ground_truth": 431.64,
+  "mean_prediction": 369.19,
+  "min_prediction": 63.4,
+  "max_prediction": 898.7,
+  "min_error": 1.64,
+  "max_error": 1448.4,
+  "test_images": 182,
+  "baseline_mae": 303.5,
+  "baseline_rmse": 368.69,
+  "buckets": {
+    "0-200": {
+      "n_samples": 43,
+      "mae": 145.58,
+      "rmse": 180.28,
+      "mape": 112.6,
+      "mean_gt": 143.9,
+      "mean_pred": 282.6
+    },
+    "200-500": {
+      "n_samples": 94,
+      "mae": 121.6,
+      "rmse": 152.81,
+      "mape": 41.0,
+      "mean_gt": 323.9,
+      "mean_pred": 347.8
+    },
+    "500-1000": {
+      "n_samples": 27,
+      "mae": 252.35,
+      "rmse": 300.41,
+      "mape": 34.1,
+      "mean_gt": 692.7,
+      "mean_pred": 447.5
+    },
+    "1000+": {
+      "n_samples": 18,
+      "mae": 719.83,
+      "rmse": 770.21,
+      "mape": 55.1,
+      "mean_gt": 1290.0,
+      "mean_pred": 570.2
+    }
+  },
+  "best_5_predictions": [
+    {
+      "image": "IMG_28.jpg",
+      "ground_truth": 423.0,
+      "prediction": 424.64,
+      "absolute_error": 1.64,
+      "percentage_error": 0.39
+    },
+    {
+      "image": "IMG_80.jpg",
+      "ground_truth": 156.02,
+      "prediction": 153.57,
+      "absolute_error": 2.45,
+      "percentage_error": 1.57
+    },
+    {
+      "image": "IMG_34.jpg",
+      "ground_truth": 88.35,
+      "prediction": 91.82,
+      "absolute_error": 3.47,
+      "percentage_error": 3.93
+    },
+    {
+      "image": "IMG_31.jpg",
+      "ground_truth": 248.8,
+      "prediction": 257.18,
+      "absolute_error": 8.39,
+      "percentage_error": 3.37
+    },
+    {
+      "image": "IMG_135.jpg",
+      "ground_truth": 71.95,
+      "prediction": 81.33,
+      "absolute_error": 9.38,
+      "percentage_error": 13.04
+    }
+  ],
+  "worst_5_predictions": [
+    {
+      "image": "IMG_56.jpg",
+      "ground_truth": 2221.78,
+      "prediction": 773.38,
+      "absolute_error": 1448.4,
+      "percentage_error": 65.19
+    },
+    {
+      "image": "IMG_142.jpg",
+      "ground_truth": 1948.49,
+      "prediction": 829.41,
+      "absolute_error": 1119.08,
+      "percentage_error": 57.43
+    },
+    {
+      "image": "IMG_87.jpg",
+      "ground_truth": 1729.07,
+      "prediction": 639.81,
+      "absolute_error": 1089.26,
+      "percentage_error": 63.0
+    },
+    {
+      "image": "IMG_73.jpg",
+      "ground_truth": 1541.52,
+      "prediction": 612.3,
+      "absolute_error": 929.22,
+      "percentage_error": 60.28
+    },
+    {
+      "image": "IMG_49.jpg",
+      "ground_truth": 1459.71,
+      "prediction": 587.21,
+      "absolute_error": 872.5,
+      "percentage_error": 59.77
+    }
+  ],
+  "dataset": "ShanghaiTech Part A",
+  "evaluated_timestamp": "2026-11-19T13:12:16.494343"
+}
