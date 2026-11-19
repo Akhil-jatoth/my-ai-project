@@ -62,3 +62,4 @@ class RoiBoxPainter extends CustomPainter {
         oldDelegate.detectedRiskZones != detectedRiskZones;
   }
 }
+
