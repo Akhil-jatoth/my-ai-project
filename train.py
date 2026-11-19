@@ -44,7 +44,11 @@ import cv2
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from PIL import Image
+from PIL import Image, ImageEnhance
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 import config
 from model.crowd_model import MCNN
@@ -67,7 +71,7 @@ def set_seed(seed: int = 42):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Density Map Generation
+# Density Map Generation & Count Preservation Verification
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gaussian_kernel(kernel_size: int = 15, sigma: float = 4.0) -> np.ndarray:
@@ -82,7 +86,7 @@ def generate_density_map(image_shape: tuple, points: np.ndarray,
                           kernel_size: int = 15, sigma: float = 4.0) -> np.ndarray:
     """
     Generate ground-truth density map from head point annotations.
-    sum(density) ≈ number of annotated heads.
+    sum(density) ≈ number of annotated heads inside the visible canvas.
     """
     H, W = image_shape
     density = np.zeros((H, W), dtype=np.float32)
@@ -102,6 +106,27 @@ def generate_density_map(image_shape: tuple, points: np.ndarray,
         density[r0:r1, c0:c1] += kernel[kr0:kr1, kc0:kc1]
 
     return density
+
+
+def verify_count_preservation(points: np.ndarray, density_map: np.ndarray,
+                               canvas_shape: tuple = None, tolerance: float = 0.05) -> tuple[bool, float, float]:
+    """
+    Mathematically verify that the density map integral preserves the ground truth head count.
+    Only points falling within the canvas boundary are counted.
+    """
+    if canvas_shape is not None:
+        H, W = canvas_shape
+        valid_mask = (points[:, 0] >= 0) & (points[:, 0] < H) & (points[:, 1] >= 0) & (points[:, 1] < W)
+        visible_points = points[valid_mask]
+    else:
+        visible_points = points
+
+    expected_count = float(len(visible_points))
+    integrated_sum = float(density_map.sum())
+    diff = abs(integrated_sum - expected_count)
+    allowed_diff = max(1.0, expected_count * tolerance)
+    is_preserved = diff <= allowed_diff
+    return is_preserved, expected_count, integrated_sum
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -135,13 +160,15 @@ def load_mat_points(mat_path: str) -> np.ndarray:
 class ShanghaiTechDataset(Dataset):
     def __init__(self, root: str, part: str = 'A', split: str = 'train',
                  image_size: tuple = (640, 480), crop_size: int = None, seed: int = 42,
-                 val_fraction: float = 0.1):
+                 val_fraction: float = 0.1, kfold: int = 0, fold: int = 0,
+                 augment: bool = False, full_train: bool = False):
         self.image_size = image_size
         self.crop_size = crop_size
         self.split = split
+        self.augment = augment
         self.rng = np.random.RandomState(seed)
 
-        # Protocol enforcement (Phase 2):
+        # Protocol enforcement:
         # train and val splits come strictly from official train_data (300 images)
         # test split comes strictly from official test_data (182 images)
         split_dir = 'test_data' if split == 'test' else 'train_data'
@@ -168,44 +195,67 @@ class ShanghaiTechDataset(Dataset):
         if split == 'test':
             self.samples = all_samples
             log.info(f"ShanghaiTech Part-{part} test (untouched official test set): {len(self.samples)} samples")
-        else:
-            # Deterministic 90/10 split of the 300 official training images (seed=42)
+        elif full_train:
+            self.samples = all_samples
+            log.info(f"ShanghaiTech Part-{part} FULL training (all official train images): {len(self.samples)} samples")
+            self._preload_train_samples()
+        elif kfold > 1:
+            # Deterministic K-fold partitioning of the official training set
             perm = np.random.RandomState(seed).permutation(len(all_samples))
-            val_count = max(1, int(len(all_samples) * val_fraction))  # 30 validation samples
+            folds = np.array_split(perm, kfold)
+            val_idx = set(folds[fold % kfold].tolist())
+            if split == 'val':
+                self.samples = [all_samples[i] for i in perm if i in val_idx]
+                log.info(f"ShanghaiTech Part-{part} 5-Fold CV [fold {fold}/{kfold}] validation: {len(self.samples)} samples")
+                self._precompute_val_cache()
+            else:
+                self.samples = [all_samples[i] for i in perm if i not in val_idx]
+                log.info(f"ShanghaiTech Part-{part} 5-Fold CV [fold {fold}/{kfold}] training: {len(self.samples)} samples")
+                self._preload_train_samples()
+        else:
+            # Deterministic split of the official training images
+            perm = np.random.RandomState(seed).permutation(len(all_samples))
+            val_count = max(1, int(len(all_samples) * val_fraction)) if val_fraction > 0 else 0
             if split == 'val':
                 self.samples = [all_samples[i] for i in perm[:val_count]]
                 log.info(f"ShanghaiTech Part-{part} validation split: {len(self.samples)} samples (from train_data)")
-                log.info(f"Precomputing {len(self.samples)} validation density maps for high-speed evaluation...")
-                self.cached_val = []
-                mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-                std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-                W, H = self.image_size
-                for img_path, mat_path in self.samples:
-                    img = Image.open(img_path).convert('RGB')
-                    orig_w, orig_h = img.size
-                    pts = load_mat_points(mat_path)
-                    img = img.resize((W, H), Image.BILINEAR)
-                    if pts.shape[0] > 0:
-                        scaled_pts = np.zeros_like(pts)
-                        scaled_pts[:, 0] = pts[:, 1] * (H / max(float(orig_h), 1.0))
-                        scaled_pts[:, 1] = pts[:, 0] * (W / max(float(orig_w), 1.0))
-                    else:
-                        scaled_pts = np.zeros((0, 2), dtype=np.float32)
-                    density = generate_density_map((H, W), scaled_pts)
-                    arr = np.array(img, dtype=np.float32) / 255.0
-                    arr = (arr - mean) / std
-                    img_tensor = torch.from_numpy(arr.transpose(2, 0, 1)).float()
-                    density_tensor = torch.from_numpy(density).unsqueeze(0).float()
-                    self.cached_val.append((img_tensor, density_tensor))
-            else:  # train
+                self._precompute_val_cache()
+            else:
                 self.samples = [all_samples[i] for i in perm[val_count:]]
                 log.info(f"ShanghaiTech Part-{part} training split: {len(self.samples)} samples (from train_data)")
-                log.info(f"Preloading {len(self.samples)} training images and annotations into RAM...")
-                self.cached_train = []
-                for img_path, mat_path in self.samples:
-                    im = Image.open(img_path).convert('RGB')
-                    pts = load_mat_points(mat_path)
-                    self.cached_train.append((im, pts))
+                self._preload_train_samples()
+
+    def _precompute_val_cache(self):
+        """Precomputes validation tensors for fast, deterministic evaluation."""
+        self.cached_val = []
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        W, H = self.image_size
+        for img_path, mat_path in self.samples:
+            img = Image.open(img_path).convert('RGB')
+            orig_w, orig_h = img.size
+            pts = load_mat_points(mat_path)
+            img = img.resize((W, H), Image.BILINEAR)
+            if pts.shape[0] > 0:
+                scaled_pts = np.zeros_like(pts)
+                scaled_pts[:, 0] = pts[:, 1] * (H / max(float(orig_h), 1.0))
+                scaled_pts[:, 1] = pts[:, 0] * (W / max(float(orig_w), 1.0))
+            else:
+                scaled_pts = np.zeros((0, 2), dtype=np.float32)
+            density = generate_density_map((H, W), scaled_pts)
+            arr = np.array(img, dtype=np.float32) / 255.0
+            arr = (arr - mean) / std
+            img_tensor = torch.from_numpy(arr.transpose(2, 0, 1)).float()
+            density_tensor = torch.from_numpy(density).unsqueeze(0).float()
+            self.cached_val.append((img_tensor, density_tensor))
+
+    def _preload_train_samples(self):
+        """Preloads training samples into RAM."""
+        self.cached_train = []
+        for img_path, mat_path in self.samples:
+            im = Image.open(img_path).convert('RGB')
+            pts = load_mat_points(mat_path)
+            self.cached_train.append((im, pts))
 
     def __len__(self):
         return len(self.samples)
@@ -224,20 +274,34 @@ class ShanghaiTechDataset(Dataset):
             pts = load_mat_points(mat_path)
 
         orig_w, orig_h = img.size
-
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
         if self.split == 'train' and self.crop_size:
             cs = self.crop_size
+
+            # Data Augmentation: Random Scaling (0.8x to 1.2x)
+            if self.augment:
+                scale_factor = float(self.rng.uniform(0.8, 1.2))
+                new_w = max(32, int(round(orig_w * scale_factor)))
+                new_h = max(32, int(round(orig_h * scale_factor)))
+                img = img.resize((new_w, new_h), Image.BILINEAR)
+                if len(pts) > 0:
+                    pts[:, 0] = pts[:, 0] * (new_w / max(float(orig_w), 1.0))
+                    pts[:, 1] = pts[:, 1] * (new_h / max(float(orig_h), 1.0))
+                orig_w, orig_h = new_w, new_h
+
+            # Ensure image is at least cs x cs
             if orig_w < cs or orig_h < cs:
-                scale = max(cs / max(float(orig_w), 1.0), cs / max(float(orig_h), 1.0))
-                nw, nh = int(math.ceil(orig_w * scale)), int(math.ceil(orig_h * scale))
+                min_scale = max(cs / max(float(orig_w), 1.0), cs / max(float(orig_h), 1.0))
+                nw, nh = int(math.ceil(orig_w * min_scale)), int(math.ceil(orig_h * min_scale))
                 img = img.resize((nw, nh), Image.BILINEAR)
-                pts = pts * scale
+                if len(pts) > 0:
+                    pts[:, 0] = pts[:, 0] * (nw / max(float(orig_w), 1.0))
+                    pts[:, 1] = pts[:, 1] * (nh / max(float(orig_h), 1.0))
                 orig_w, orig_h = nw, nh
 
-            # Phase 8: Balanced crowd-centric sampling (80% head-centered with jitter, 20% random context)
+            # Crop window: 80% crowd-centric around random head, 20% random context
             if len(pts) > 0 and self.rng.rand() < 0.8:
                 target_pt = pts[self.rng.randint(0, len(pts))]
                 cx, cy = target_pt[0], target_pt[1]
@@ -249,6 +313,7 @@ class ShanghaiTechDataset(Dataset):
 
             img = img.crop((x0, y0, x0 + cs, y0 + cs))
 
+            # Filter points inside cropped region (Count Preservation)
             if len(pts) > 0:
                 mask = (pts[:, 0] >= x0) & (pts[:, 0] < x0 + cs) & (pts[:, 1] >= y0) & (pts[:, 1] < y0 + cs)
                 c_pts = pts[mask].copy()
@@ -257,10 +322,18 @@ class ShanghaiTechDataset(Dataset):
             else:
                 c_pts = np.zeros((0, 2), dtype=np.float32)
 
-            if self.rng.rand() < 0.5:
+            # Data Augmentation: Horizontal Flip (p = 0.5)
+            if (self.augment or self.split == 'train') and self.rng.rand() < 0.5:
                 img = img.transpose(Image.FLIP_LEFT_RIGHT)
                 if len(c_pts) > 0:
                     c_pts[:, 0] = cs - 1 - c_pts[:, 0]
+
+            # Data Augmentation: Photometric jitter (brightness & contrast 0.8 - 1.2)
+            if self.augment:
+                b_factor = float(self.rng.uniform(0.8, 1.2))
+                c_factor = float(self.rng.uniform(0.8, 1.2))
+                img = ImageEnhance.Brightness(img).enhance(b_factor)
+                img = ImageEnhance.Contrast(img).enhance(c_factor)
 
             scaled_pts = np.zeros_like(c_pts)
             if len(c_pts) > 0:
@@ -428,6 +501,66 @@ def verify_ground_truth_density_integral(points: np.ndarray, density_map: np.nda
     return is_valid, gt_count, density_sum
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Training Dynamics Plotting
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_training_curves(csv_path: str, output_path: str = 'results/training_curves.png'):
+    """Generate comprehensive training and validation curves from CSV history."""
+    if not os.path.exists(csv_path):
+        return
+    try:
+        import csv
+        epochs, t_losses, v_losses, v_maes, v_rmses, grad_norms = [], [], [], [], [], []
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                epochs.append(int(row['epoch']))
+                t_losses.append(float(row['train_loss']))
+                v_losses.append(float(row['val_loss']))
+                v_maes.append(float(row['val_mae']))
+                v_rmses.append(float(row['val_rmse']))
+                grad_norms.append(float(row.get('grad_norm', 0.0)))
+        
+        if not epochs:
+            return
+        
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        fig, axes = plt.subplots(3, 1, figsize=(9, 11), sharex=True)
+        
+        # Subplot 1: Loss curves
+        axes[0].plot(epochs, t_losses, label='Train Loss', color='#2563eb', lw=2)
+        axes[0].plot(epochs, v_losses, label='Val Loss', color='#dc2626', lw=2, linestyle='--')
+        axes[0].set_ylabel('Loss (MSE/Euclidean)')
+        axes[0].set_title('CrowdSense MCNN Training Dynamics')
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
+
+        # Subplot 2: MAE & RMSE curves
+        axes[1].plot(epochs, v_maes, label='Val MAE', color='#16a34a', lw=2)
+        axes[1].plot(epochs, v_rmses, label='Val RMSE', color='#9333ea', lw=2, linestyle=':')
+        best_idx = int(np.argmin(v_maes))
+        axes[1].scatter([epochs[best_idx]], [v_maes[best_idx]], color='red', s=80, zorder=5,
+                        label=f'Best MAE ({v_maes[best_idx]:.1f} @ ep {epochs[best_idx]})')
+        axes[1].set_ylabel('Error Count')
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
+
+        # Subplot 3: Gradient Norm
+        axes[2].plot(epochs, grad_norms, label='Mean Grad Norm', color='#d97706', lw=1.5)
+        axes[2].set_xlabel('Epoch')
+        axes[2].set_ylabel('Grad Norm')
+        axes[2].grid(True, alpha=0.3)
+        axes[2].legend()
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=200)
+        plt.close(fig)
+        log.info(f"Training curves saved to {output_path}")
+    except Exception as e:
+        log.warning(f"Could not generate training curve plot: {e}")
+
+
 def train(args):
     set_seed(args.seed)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -444,13 +577,20 @@ def train(args):
         print("=" * 60 + "\n")
         sys.exit(1)
 
-    # Load dataset (Phase 2 Protocol: 270 train / 30 val from 300 training samples)
     crop_size = args.crop_size if getattr(args, 'crop_size', 0) > 0 else None
     if args.dataset == 'shanghaitech':
-        train_ds = ShanghaiTechDataset(args.data_root, part=args.part, split='train',
-                                       crop_size=crop_size, seed=args.seed)
-        val_ds   = ShanghaiTechDataset(args.data_root, part=args.part, split='val',
-                                       image_size=(640, 480), seed=args.seed)
+        train_ds = ShanghaiTechDataset(
+            args.data_root, part=args.part, split='train',
+            crop_size=crop_size, seed=args.seed,
+            kfold=args.kfold, fold=args.fold,
+            augment=args.augment, full_train=args.full_train
+        )
+        val_ds   = ShanghaiTechDataset(
+            args.data_root, part=args.part, split='val',
+            image_size=(640, 480), seed=args.seed,
+            kfold=args.kfold, fold=args.fold,
+            full_train=args.full_train
+        )
     elif args.dataset == 'ucf':
         train_ds = UCFDataset(args.data_root, split='train', seed=args.seed)
         val_ds   = UCFDataset(args.data_root, split='val', seed=args.seed)
@@ -468,7 +608,18 @@ def train(args):
     log.info(f"MCNN Parameter count: {param_count:,}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step, gamma=args.lr_gamma)
+
+    # Scheduler selection: Cosine Annealing with warmup vs StepLR
+    if args.scheduler == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=max(1, args.epochs - args.warmup_epochs),
+            eta_min=args.lr * 0.01
+        )
+        log.info(f"LR Scheduler: CosineAnnealingLR (T_max={max(1, args.epochs - args.warmup_epochs)}, eta_min={args.lr*0.01})")
+    else:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step, gamma=args.lr_gamma)
+        log.info(f"LR Scheduler: StepLR (step_size={args.lr_step}, gamma={args.lr_gamma})")
     
     loss_fn_name = getattr(args, 'loss', 'euclidean')
     if loss_fn_name == 'euclidean':
@@ -479,12 +630,17 @@ def train(args):
         log.info("Loss function: Mean Squared Error (MSE)")
 
     os.makedirs(config.MODEL_DIR, exist_ok=True)
+    os.makedirs('results', exist_ok=True)
     log_path = os.path.join(config.MODEL_DIR, 'train_log.txt')
     history_csv_path = os.path.join(config.BASE_DIR, 'training_history.csv')
+
+    weights_best_path = os.path.join(config.MODEL_DIR, 'weights_best.pth')
+    weights_last_path = os.path.join(config.MODEL_DIR, 'weights_last.pth')
 
     best_mae   = float('inf')
     best_rmse  = float('inf')
     best_epoch = -1
+    patience_counter = 0
 
     with open(log_path, 'w', encoding='utf-8') as log_file, \
          open(history_csv_path, 'w', encoding='utf-8') as csv_file:
@@ -493,9 +649,9 @@ def train(args):
         csv_file.write(header)
 
         for epoch in range(1, args.epochs + 1):
-            # Short 3-epoch warmup
-            if epoch <= 3:
-                warmup_lr = args.lr * (epoch / 3.0)
+            # Warmup logic
+            if epoch <= args.warmup_epochs:
+                warmup_lr = args.lr * (epoch / float(max(1, args.warmup_epochs)))
                 for pg in optimizer.param_groups:
                     pg['lr'] = warmup_lr
 
@@ -513,6 +669,10 @@ def train(args):
                 loss  = criterion(preds, densities)
                 loss.backward()
                 
+                # Gradient clipping
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_clip)
+
                 # Track gradient norm
                 total_norm = torch.sqrt(sum(p.grad.norm()**2 for p in model.parameters() if p.grad is not None)).item()
                 epoch_grads.append(total_norm)
@@ -520,7 +680,7 @@ def train(args):
 
                 epoch_loss += loss.item() * imgs.size(0)
 
-            if epoch > 3:
+            if epoch > args.warmup_epochs:
                 scheduler.step()
 
             train_loss = epoch_loss / max(len(train_ds), 1)
@@ -558,15 +718,28 @@ def train(args):
             if epoch >= 5 and val_metrics['zero_pct'] >= 80.0:
                 log.warning(f"⚠️ Zero-collapse warning: {val_metrics['zero_pct']:.1f}% of validation predictions are < 1.0!")
 
-            # Save strictly when validation MAE improves on the 30-sample validation subset
+            # Always save last checkpoint
+            torch.save(model.state_dict(), weights_last_path)
+
+            # Checkpoint saving strictly when validation MAE improves
             if val_mae < best_mae:
                 best_mae   = val_mae
                 best_rmse  = val_rmse
                 best_epoch = epoch
+                patience_counter = 0
+                torch.save(model.state_dict(), weights_best_path)
                 torch.save(model.state_dict(), config.MODEL_WEIGHTS_PATH)
-                log.info(f"  ✔ Best model checkpoint saved to {config.MODEL_WEIGHTS_PATH} (Val MAE={best_mae:.2f})")
+                log.info(f"  ✔ Best model checkpoint saved to {weights_best_path} and {config.MODEL_WEIGHTS_PATH} (Val MAE={best_mae:.2f})")
+            else:
+                patience_counter += 1
+                if args.early_stopping > 0 and patience_counter >= args.early_stopping:
+                    log.info(f"⏹️ Early stopping triggered at epoch {epoch} (no improvement in {patience_counter} epochs).")
+                    break
 
-    # Save training metadata JSON for complete provenance (Section 8)
+    # Save training curves plot
+    plot_training_curves(history_csv_path, output_path='results/training_curves.png')
+
+    # Save training metadata JSON for complete provenance
     metadata = {
         "model_name": config.MODEL_NAME,
         "model_version": config.MODEL_VERSION,
@@ -577,16 +750,26 @@ def train(args):
         "best_val_mae": round(float(best_mae), 3),
         "best_val_rmse": round(float(best_rmse), 3),
         "learning_rate": args.lr,
+        "scheduler": args.scheduler,
+        "warmup_epochs": args.warmup_epochs,
+        "grad_clip": args.grad_clip,
+        "early_stopping": args.early_stopping,
         "weight_decay": args.weight_decay,
         "batch_size": args.batch_size,
         "random_seed": args.seed,
         "crop_size": crop_size,
+        "augment": getattr(args, 'augment', False),
+        "kfold": getattr(args, 'kfold', 0),
+        "fold": getattr(args, 'fold', 0),
+        "full_train": getattr(args, 'full_train', False),
         "loss_function": loss_fn_name,
         "train_samples": len(train_ds),
         "val_samples": len(val_ds),
         "official_test_samples": 182,
         "trained_timestamp": datetime.now().isoformat(),
         "weights_path": config.MODEL_WEIGHTS_PATH,
+        "weights_best_path": weights_best_path,
+        "weights_last_path": weights_last_path,
     }
     with open(config.TRAINING_META_PATH, 'w', encoding='utf-8') as mf:
         json.dump(metadata, mf, indent=2)
@@ -608,6 +791,14 @@ if __name__ == '__main__':
     parser.add_argument('--weight-decay', type=float, default=1e-4)
     parser.add_argument('--lr-step',      type=int,   default=30)
     parser.add_argument('--lr-gamma',     type=float, default=0.5)
+    parser.add_argument('--scheduler',    choices=['cosine', 'step'], default='cosine', help='LR scheduler')
+    parser.add_argument('--warmup-epochs',type=int,   default=3,    help='Number of warmup epochs')
+    parser.add_argument('--grad-clip',    type=float, default=1.0,  help='Gradient norm clipping (0 to disable)')
+    parser.add_argument('--early-stopping', type=int, default=15,   help='Early stopping patience (0 to disable)')
+    parser.add_argument('--augment',      action='store_true',      help='Enable data augmentation')
+    parser.add_argument('--kfold',        type=int,   default=0,    help='K-fold cross-validation folds (0 to disable)')
+    parser.add_argument('--fold',         type=int,   default=0,    help='Validation fold index for K-fold CV')
+    parser.add_argument('--full-train',   action='store_true',      help='Train on all training images without split')
     parser.add_argument('--workers',      type=int,   default=0)
     parser.add_argument('--crop-size',   type=int,   default=256, help='Crop size for training patches (0 for full images)')
     parser.add_argument('--loss',        choices=['euclidean', 'mse'], default='euclidean', help='Loss function')
