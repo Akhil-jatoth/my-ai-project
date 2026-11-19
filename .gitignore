@@ -39,3 +39,9 @@ crowdsense.db
 # Dataset files (download separately — see data/README.md)
 data/ShanghaiTech/
 data/UCF_CC_50/
+
+# Flutter / Mobile binaries
+*.apk
+*.aab
+mobile/build/
+.dart_tool/

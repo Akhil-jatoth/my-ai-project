@@ -57,3 +57,4 @@ def set_app_logo(choice="5"):
 if __name__ == "__main__":
     choice = sys.argv[1] if len(sys.argv) > 1 else "5"
     set_app_logo(choice)
+
