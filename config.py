@@ -34,8 +34,10 @@ MODEL_NAME    = "MCNN"
 MODEL_VERSION = "1.0.0"
 
 # ── Upload & Security Settings ─────────────────────────────────────────────
-MAX_FILE_SIZE       = 16 * 1024 * 1024          # 16 MB limit
-ALLOWED_EXTENSIONS  = {'jpg', 'jpeg', 'png', 'webp'}
+MAX_FILE_SIZE            = 16 * 1024 * 1024          # 16 MB limit
+MAX_VIDEO_SIZE           = 100 * 1024 * 1024         # 100 MB video limit
+ALLOWED_EXTENSIONS       = {'jpg', 'jpeg', 'png', 'webp'}
+ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'avi', 'mov', 'webm', 'mkv'}
 
 # Minimum and maximum allowable image dimensions for processing
 MIN_IMAGE_DIM = 32

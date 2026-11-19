@@ -93,6 +93,9 @@
                         <button class="input-tab" data-tab="webcam" id="tabWebcam">
                             <i class="fas fa-camera"></i> Webcam
                         </button>
+                        <button class="input-tab" data-tab="video" id="tabVideo">
+                            <i class="fas fa-video"></i> Video
+                        </button>
                     </div>
 
                     <div id="uploadPanel" class="input-panel">
@@ -127,6 +130,29 @@
                                 <i class="fas fa-camera"></i> Capture Frame
                             </button>
                         </div>
+                    </div>
+
+                    <div id="videoPanel" class="input-panel hidden">
+                        <p class="input-hint">MP4, WEBM, MOV — max 100 MB</p>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo" class="file-input">
+                            <label for="videoInput" class="file-dropzone" id="videoDropzone">
+                                <div class="dropzone-icon">
+                                    <i class="fas fa-film"></i>
+                                </div>
+                                <span class="dropzone-title">Drop video here</span>
+                                <span class="dropzone-subtitle">or click to browse video</span>
+                            </label>
+                        </div>
+                        <div class="form-group" style="margin-top: 10px;">
+                            <label for="videoSampleInterval" class="form-label">
+                                <i class="fas fa-stopwatch"></i> Sampling Interval (seconds)
+                            </label>
+                            <input type="number" id="videoSampleInterval" min="0.5" max="10" step="0.5" value="1.0" class="form-input">
+                        </div>
+                        <button id="analyzeVideoBtn" class="btn btn-primary btn-block" style="margin-top: 10px;" disabled>
+                            <i class="fas fa-chart-line"></i> Analyze Video
+                        </button>
                     </div>
 
                     <div id="fileInfo" class="file-preview hidden">
@@ -541,10 +567,13 @@
                         <div id="sideView" class="image-comparison-grid hidden">
                             <figure class="image-frame">
                                 <figcaption>
-                                    <i class="fas fa-image"></i> Original
+                                    <i class="fas fa-image"></i> Original (Click &amp; Drag to Count Zone)
                                     <button class="frame-action" id="fullscreenOriginal" title="Fullscreen"><i class="fas fa-expand"></i></button>
                                 </figcaption>
-                                <img id="originalImage" src="" alt="Original crowd image">
+                                <div style="position: relative; display: inline-block; width: 100%;">
+                                    <img id="originalImage" src="" alt="Original crowd image" style="display: block; width: 100%;">
+                                    <canvas id="zoneCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair;"></canvas>
+                                </div>
                             </figure>
                             <figure class="image-frame">
                                 <figcaption>
@@ -553,6 +582,52 @@
                                 </figcaption>
                                 <img id="heatmapImage" src="" alt="Density heatmap overlay">
                             </figure>
+                        </div>
+
+                        <!-- Interactive Zone Counting Toolbar (Phase 4) -->
+                        <div class="zone-counting-bar" style="margin-top: 15px; padding: 12px 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button id="drawZoneBtn" class="btn btn-outline btn-sm">
+                                    <i class="fas fa-vector-square"></i> Select Sub-Region Zone
+                                </button>
+                                <button id="clearZoneBtn" class="btn btn-outline btn-sm hidden">
+                                    <i class="fas fa-trash-can"></i> Clear Zone
+                                </button>
+                                <span class="compare-hint" style="margin: 0; font-size: 0.85rem;">Switch to Side by Side view and drag a rectangle on the image</span>
+                            </div>
+                            <div id="zoneResultBadge" class="hidden" style="font-weight: 600; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; padding: 6px 14px; border-radius: 20px; font-size: 0.9rem;">
+                                Zone Estimate: <span id="zoneCountText">0</span> people (<span id="zonePctText">0%</span> of crowd)
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Video Analytics Card (Phase 4) -->
+                    <div id="videoResultsCard" class="panel-card hidden">
+                        <div class="panel-header panel-header-row">
+                            <div>
+                                <span class="section-eyebrow">Surveillance Video Analytics</span>
+                                <h2>Crowd Headcount Over Time</h2>
+                            </div>
+                            <span class="system-pill" id="videoFramesBadge">0 frames</span>
+                        </div>
+                        <div class="header-metrics" style="margin-bottom: 20px;">
+                            <div class="header-metric">
+                                <span class="header-metric-value" id="videoPeakCount">—</span>
+                                <span class="header-metric-label">Peak Crowd Count</span>
+                            </div>
+                            <div class="header-metric-divider"></div>
+                            <div class="header-metric">
+                                <span class="header-metric-value" id="videoAvgCount">—</span>
+                                <span class="header-metric-label">Average Crowd Count</span>
+                            </div>
+                            <div class="header-metric-divider"></div>
+                            <div class="header-metric">
+                                <span class="header-metric-value" id="videoPeakTime">—</span>
+                                <span class="header-metric-label">Peak Timestamp (sec)</span>
+                            </div>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 260px; width: 100%;">
+                            <canvas id="videoTimeSeriesChart"></canvas>
                         </div>
                     </div>
 

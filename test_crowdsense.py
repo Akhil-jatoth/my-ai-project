@@ -258,5 +258,47 @@ class TestCrowdSenseAPI(unittest.TestCase):
         self.assertIn("history", hist)
         self.assertIsInstance(hist["history"], list)
 
+    def test_zone_count_endpoint(self):
+        """Phase 4: Zone counting endpoint integrates density map in sub-region."""
+        # 1. First run predict on a synthetic image
+        img = Image.new('RGB', (160, 120), color=(80, 80, 80))
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        resp = self.client.post('/api/predict', data={'file': (buf, 'test_zone.png')}, content_type='multipart/form-data')
+        self.assertEqual(resp.status_code, 200)
+        res = json.loads(resp.data)
+        self.assertIn("analysis_id", res)
+        analysis_id = res["analysis_id"]
+
+        # 2. Query zone-count for half the image [0, 0, 0.5, 1.0]
+        zone_payload = {
+            "analysis_id": analysis_id,
+            "bbox": [0.0, 0.0, 0.5, 1.0]
+        }
+        zone_resp = self.client.post('/api/zone-count', data=json.dumps(zone_payload), content_type='application/json')
+        self.assertEqual(zone_resp.status_code, 200)
+        zres = json.loads(zone_resp.data)
+        self.assertTrue(zres["success"])
+        self.assertIn("zone_count", zres)
+        self.assertIn("percentage_of_total", zres)
+        self.assertGreaterEqual(zres["zone_count"], 0.0)
+
+    def test_tta_uncertainty_in_predict(self):
+        """Phase 4: Real empirical uncertainty is computed via Test-Time Augmentation."""
+        img = Image.new('RGB', (160, 120), color=(90, 90, 90))
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        resp = self.client.post('/api/predict', data={'file': (buf, 'test_tta.png')}, content_type='multipart/form-data')
+        self.assertEqual(resp.status_code, 200)
+        res = json.loads(resp.data)
+        self.assertIn("uncertainty_tta", res)
+        tta = res["uncertainty_tta"]
+        self.assertIn("confidence_interval_95", tta)
+        self.assertIn("std_dev", tta)
+        self.assertIn("mean_count", tta)
+        self.assertEqual(tta["variants_evaluated"], 4)
+
 if __name__ == '__main__':
     unittest.main()

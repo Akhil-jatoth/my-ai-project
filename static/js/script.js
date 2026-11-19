@@ -105,11 +105,13 @@ document.querySelectorAll('.input-tab').forEach(tab => {
         document.querySelectorAll('.input-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
 
-        const isUpload = tab.dataset.tab === 'upload';
-        uploadPanel.classList.toggle('hidden', !isUpload);
-        webcamPanel.classList.toggle('hidden', isUpload);
+        const mode = tab.dataset.tab;
+        uploadPanel.classList.toggle('hidden', mode !== 'upload');
+        webcamPanel.classList.toggle('hidden', mode !== 'webcam');
+        const videoPanel = document.getElementById('videoPanel');
+        if (videoPanel) videoPanel.classList.toggle('hidden', mode !== 'video');
 
-        if (isUpload) stopWebcam();
+        if (mode !== 'webcam') stopWebcam();
     });
 });
 
@@ -379,14 +381,20 @@ function updateGauge(percent) {
 
 function displayResults(prediction) {
     animateCounter(crowdCount, prediction.count);
+    window.currentAnalysisId = prediction.analysis_id || prediction.request_id;
 
-    // Uncertainty display (Phase 8)
+    // Uncertainty display (Phase 8 heuristic & Phase 4 TTA empirical)
     const crowdUncertainty = document.getElementById('crowdUncertainty');
     if (crowdUncertainty) {
-        const uDelta = prediction.prediction?.uncertainty_delta ?? prediction.uncertainty_delta ?? (prediction.uncertainty ? String(prediction.uncertainty).replace('±', '') : null);
-        const uBounds = prediction.prediction?.uncertainty_bounds ?? prediction.uncertainty_bounds ?? (uDelta ? [Math.max(0, prediction.count - Number(uDelta)), prediction.count + Number(uDelta)] : null);
-        if (uDelta && uBounds) {
-            crowdUncertainty.textContent = `Uncertainty: ±${uDelta} (${uBounds[0]} – ${uBounds[1]})`;
+        if (prediction.uncertainty_tta) {
+            const tta = prediction.uncertainty_tta;
+            crowdUncertainty.textContent = `TTA 95% CI: ±${tta.margin_of_error} (${tta.confidence_interval_95[0]} – ${tta.confidence_interval_95[1]}), σ=${tta.std_dev}`;
+        } else {
+            const uDelta = prediction.prediction?.uncertainty_delta ?? prediction.uncertainty_delta ?? (prediction.uncertainty ? String(prediction.uncertainty).replace('±', '') : null);
+            const uBounds = prediction.prediction?.uncertainty_bounds ?? prediction.uncertainty_bounds ?? (uDelta ? [Math.max(0, prediction.count - Number(uDelta)), prediction.count + Number(uDelta)] : null);
+            if (uDelta && uBounds) {
+                crowdUncertainty.textContent = `Uncertainty: ±${uDelta} (${uBounds[0]} – ${uBounds[1]})`;
+            }
         }
     }
 
@@ -1026,10 +1034,240 @@ async function loadModelPerformance() {
     if (perfMetricsGrid) perfMetricsGrid.classList.add('hidden');
 }
 
+/* =====================================================
+   Phase 4: Interactive Zone Counting
+   ===================================================== */
+let zoneDrawing = false;
+let zoneStartX = 0, zoneStartY = 0;
+const zoneCanvas = document.getElementById('zoneCanvas');
+const drawZoneBtn = document.getElementById('drawZoneBtn');
+const clearZoneBtn = document.getElementById('clearZoneBtn');
+const zoneResultBadge = document.getElementById('zoneResultBadge');
+const zoneCountText = document.getElementById('zoneCountText');
+const zonePctText = document.getElementById('zonePctText');
+
+function initZoneCanvas() {
+    if (!zoneCanvas) return;
+    const originalImg = document.getElementById('originalImage');
+    if (!originalImg) return;
+
+    function resizeCanvas() {
+        zoneCanvas.width = originalImg.clientWidth || 640;
+        zoneCanvas.height = originalImg.clientHeight || 480;
+    }
+    originalImg.addEventListener('load', resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    const ctx = zoneCanvas.getContext('2d');
+
+    zoneCanvas.addEventListener('mousedown', (e) => {
+        const rect = zoneCanvas.getBoundingClientRect();
+        zoneStartX = e.clientX - rect.left;
+        zoneStartY = e.clientY - rect.top;
+        zoneDrawing = true;
+    });
+
+    zoneCanvas.addEventListener('mousemove', (e) => {
+        if (!zoneDrawing) return;
+        const rect = zoneCanvas.getBoundingClientRect();
+        const currentX = e.clientX - rect.left;
+        const currentY = e.clientY - rect.top;
+
+        ctx.clearRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.2)';
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2;
+
+        const w = currentX - zoneStartX;
+        const h = currentY - zoneStartY;
+        ctx.fillRect(zoneStartX, zoneStartY, w, h);
+        ctx.strokeRect(zoneStartX, zoneStartY, w, h);
+    });
+
+    zoneCanvas.addEventListener('mouseup', async (e) => {
+        if (!zoneDrawing) return;
+        zoneDrawing = false;
+        const rect = zoneCanvas.getBoundingClientRect();
+        const endX = e.clientX - rect.left;
+        const endY = e.clientY - rect.top;
+
+        const x1 = Math.min(zoneStartX, endX) / zoneCanvas.width;
+        const x2 = Math.max(zoneStartX, endX) / zoneCanvas.width;
+        const y1 = Math.min(zoneStartY, endY) / zoneCanvas.height;
+        const y2 = Math.max(zoneStartY, endY) / zoneCanvas.height;
+
+        if (Math.abs(endX - zoneStartX) < 10 || Math.abs(endY - zoneStartY) < 10) {
+            return;
+        }
+
+        if (!window.currentAnalysisId) return;
+
+        try {
+            const resp = await fetch('/api/zone-count', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    analysis_id: window.currentAnalysisId,
+                    bbox: [x1, y1, x2, y2]
+                })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                if (zoneResultBadge) zoneResultBadge.classList.remove('hidden');
+                if (clearZoneBtn) clearZoneBtn.classList.remove('hidden');
+                if (zoneCountText) zoneCountText.textContent = data.zone_count_int;
+                if (zonePctText) zonePctText.textContent = data.percentage_of_total + '%';
+            }
+        } catch (err) {
+            console.error('Zone count query failed:', err);
+        }
+    });
+
+    if (clearZoneBtn) {
+        clearZoneBtn.addEventListener('click', () => {
+            ctx.clearRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+            if (zoneResultBadge) zoneResultBadge.classList.add('hidden');
+            clearZoneBtn.classList.add('hidden');
+        });
+    }
+
+    if (drawZoneBtn) {
+        drawZoneBtn.addEventListener('click', () => {
+            const sideBtn = document.getElementById('viewSide');
+            if (sideBtn) sideBtn.click();
+            showToast('Click and drag on the original image to outline a sub-region.', 'info');
+        });
+    }
+}
+
+/* =====================================================
+   Phase 4: Video Surveillance Analytics
+   ===================================================== */
+let videoTimeSeriesChart = null;
+
+function initVideoAnalytics() {
+    const videoInput = document.getElementById('videoInput');
+    const analyzeVideoBtn = document.getElementById('analyzeVideoBtn');
+    const videoDropzone = document.getElementById('videoDropzone');
+    const videoResultsCard = document.getElementById('videoResultsCard');
+
+    if (!videoInput || !analyzeVideoBtn) return;
+
+    videoInput.addEventListener('change', () => {
+        if (videoInput.files.length > 0) {
+            analyzeVideoBtn.disabled = false;
+            const dropzoneTitle = videoDropzone.querySelector('.dropzone-title');
+            if (dropzoneTitle) dropzoneTitle.textContent = videoInput.files[0].name;
+        }
+    });
+
+    analyzeVideoBtn.addEventListener('click', async () => {
+        if (!videoInput.files.length) return;
+        const file = videoInput.files[0];
+        const sampleInterval = document.getElementById('videoSampleInterval')?.value || '1.0';
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('sample_interval', sampleInterval);
+
+        analyzeVideoBtn.disabled = true;
+        analyzeVideoBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing Video…';
+
+        try {
+            const resp = await fetch('/api/predict-video', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                showToast(data.error || 'Video analysis failed.', 'error');
+                return;
+            }
+
+            if (videoResultsCard) {
+                videoResultsCard.classList.remove('hidden');
+                videoResultsCard.scrollIntoView({ behavior: 'smooth' });
+            }
+
+            document.getElementById('videoPeakCount').textContent = data.peak_count;
+            document.getElementById('videoAvgCount').textContent = data.average_count;
+            document.getElementById('videoPeakTime').textContent = data.peak_timestamp + 's';
+            document.getElementById('videoFramesBadge').textContent = `${data.total_frames_sampled} frames sampled (${data.duration_sec}s)`;
+
+            renderVideoChart(data.time_series);
+            showToast('Video crowd tracking complete!', 'success');
+        } catch (err) {
+            console.error('Video analysis error:', err);
+            showToast('Network error while processing video.', 'error');
+        } finally {
+            analyzeVideoBtn.disabled = false;
+            analyzeVideoBtn.innerHTML = '<i class="fas fa-chart-line"></i> Analyze Video';
+        }
+    });
+}
+
+function renderVideoChart(timeSeries) {
+    const canvas = document.getElementById('videoTimeSeriesChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (videoTimeSeriesChart) {
+        videoTimeSeriesChart.destroy();
+    }
+
+    const labels = timeSeries.map(pt => pt.timestamp + 's');
+    const counts = timeSeries.map(pt => pt.count);
+
+    videoTimeSeriesChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Estimated Crowd Count',
+                data: counts,
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                borderWidth: 2.5,
+                fill: true,
+                tension: 0.3,
+                pointRadius: counts.length > 30 ? 1 : 3,
+                pointHoverRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    title: { display: true, text: 'Video Timestamp', font: { family: 'DM Sans', size: 12 } },
+                    grid: { color: 'rgba(226, 232, 240, 0.6)' }
+                },
+                y: {
+                    title: { display: true, text: 'Head Count', font: { family: 'DM Sans', size: 12 } },
+                    beginAtZero: true,
+                    grid: { color: 'rgba(226, 232, 240, 0.6)' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ` Headcount: ${ctx.parsed.y} people`
+                    }
+                }
+            }
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     checkServerHealth();
     loadHistory();
     loadModelPerformance();
+    initZoneCanvas();
+    initVideoAnalytics();
     setInterval(checkServerHealth, 30000);
 });
 
