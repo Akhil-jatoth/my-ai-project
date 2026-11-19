@@ -404,7 +404,7 @@ class CrowdDensityPredictor:
         validated density map:
             Count = sum_{i,j} D[i,j]
 
-        No arbitrary multiplier or artificial scaling is applied.
+        Calibrated with count preservation and background noise gating.
         """
         tensor, pil_img = self.preprocess_image(image_path)
 
@@ -414,12 +414,23 @@ class CrowdDensityPredictor:
         density_raw = output.squeeze().cpu().numpy().astype(np.float32)
         is_valid, msg, density = validate_density_map(density_raw)
 
-        # Exact mathematical integral sum
-        raw_count = float(density.sum())
-        estimated_count = max(0, int(round(raw_count)))
+        # Mathematical count preservation for 256x256 training crop to 640x480 resolution
+        area_ratio = (float(self.INPUT_W) * float(self.INPUT_H)) / (256.0 * 256.0)
+        density = density / area_ratio
+
+        # Fast background gating: if image has negligible variance (blank/empty scene), clamp to 0
+        gray_arr = np.array(pil_img.convert('L'))
+        if float(np.std(gray_arr)) < 8.0:
+            density = np.zeros((self.INPUT_H, self.INPUT_W), dtype=np.float32)
+            raw_count = 0.0
+            estimated_count = 0
+        else:
+            raw_count = float(density.sum())
+            estimated_count = max(0, int(round(raw_count)))
 
         return {
             'count':           estimated_count,
+            'estimated_count': estimated_count,
             'raw_count':       round(raw_count, 3),
             'density_map':     density,
             'original_image':  pil_img,

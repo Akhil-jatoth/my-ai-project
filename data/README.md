@@ -23,7 +23,7 @@ data/
     │   └── test_data/
     │       ├── images/
     │       └── ground-truth/
-    └── part_B/
+    └── part_B/    
         ├── train_data/
         │   ├── images/
         │   └── ground-truth/

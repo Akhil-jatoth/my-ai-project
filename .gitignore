@@ -29,8 +29,8 @@ static/uploads/*
 static/outputs/*
 !static/outputs/.gitkeep
 
-# Trained model weights (large binary; retrain locally)
-model/weights.pth
+# Trained model weights (MCNN baseline weights ~530KB tracked; large checkpoint weights_best.pth optional)
+# model/weights.pth
 model/train_log.txt
 
 # SQLite database (local history)

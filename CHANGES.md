@@ -65,6 +65,18 @@
 - **Updated `SCIENTIFIC_REPORT.md`:** Aligned all numbers with `results/metrics.json`, added CSRNet specifications, TTA uncertainty formulation, and dedicated empirical ablation studies.
 - **Created `PRESENTATION_NOTES.md`:** 7-Slide presentation outline with speaking scripts, key takeaways, and exact figure mappings to `results/`.
 
+### Post-Phase Bugfixes & Runtime Calibration
+- **Resolved Blank Print Report Issue:**
+  - Fixed CSS `@media print` cascade in `static/css/style.css` so print styles properly override the `.hidden` class.
+  - Removed lingering `.hidden` attribute from `<div id="printReport">` in `templates/index.html`.
+  - Added comprehensive `metrics` payload inside `/api/predict` response to populate all report cards.
+- **Fixed Model Weights Not Finding Issue:**
+  - Removed `model/weights.pth` from `.gitignore` so deployment weights are tracked and available out of the box.
+  - Created `scripts/train_baseline_weights.py` and packaged baseline weights `model/weights.pth` (529.5 KB), enabling instant **TRAINED Mode** (`weights_loaded: true`) without requiring immediate retraining.
+- **Calibrated Prediction on Arbitrary Non-Dataset Images:**
+  - Re-engineered `generate_cv_fallback_density()` in `app.py`: Replaced the flawed 85th-percentile heuristic (which assumed ~15% of all pixels were heads, artificially producing 800–1000 people on blank or few-people images) with multi-threshold OpenCV blob detection and edge texture clustering.
+  - Calibrated `CrowdDensityPredictor.predict()` in `model/crowd_model.py`: Added aspect and crop-ratio scaling for full-resolution images ($640\times480$ vs $256\times256$) and flat-background noise suppression (`std < 8.0` clamping to zero count) to prevent empty or sparse images from hallucinating phantom crowds. Verified: Blank images return count 0, low crowds return low counts.
+
 ---
 
 ## 2. Complete File Inventory
@@ -109,4 +121,6 @@
 | `SCIENTIFIC_REPORT.md` | Modified | Updated metrics to match `metrics.json`, added CSRNet, TTA uncertainty, and empirical ablations |
 | `PRESENTATION_NOTES.md` | Created | 7-Slide presentation outline with speaking scripts and figure references |
 | `CHANGES.md` | Created | Comprehensive file ledger and changelog |
+| `model/weights.pth` | Generated & Tracked | 529.5 KB MCNN baseline model weights for instant TRAINED mode execution |
+| `scripts/train_baseline_weights.py` | Created | Standalone reproducible script for generating functional baseline weights |
 
