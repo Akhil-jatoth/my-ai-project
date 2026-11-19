@@ -9,7 +9,7 @@
   "mean_ground_truth": 431.64,
   "mean_prediction": 0.88,
   "evaluation_timestamp": "2026-10-31T00:48:52.143258",
-  "weights_path": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth",
+  "weights_path": "model/weights.pth",
   "training_provenance": {
     "model_name": "MCNN",
     "model_version": "1.0.0",
@@ -28,6 +28,6 @@
     "train_samples": 300,
     "val_samples": 182,
     "trained_timestamp": "2026-10-31T00:47:19.443746",
-    "weights_path": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth"
+    "weights_path": "model/weights.pth"
   }
 }

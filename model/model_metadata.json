@@ -17,5 +17,5 @@
   "val_samples": 30,
   "official_test_samples": 182,
   "trained_timestamp": "2026-10-31T10:35:25.977445",
-  "weights_path": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth"
+  "weights_path": "model/weights.pth"
 }

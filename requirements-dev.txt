@@ -1,0 +1,11 @@
+# CrowdSense — Development and Testing Dependencies
+-r requirements.txt
+
+# Scientific computing & evaluation
+scipy>=1.11.0
+
+# Testing and Code Quality
+pytest>=7.4.0
+pytest-cov>=4.1.0
+flake8>=6.0.0
+black>=23.7.0

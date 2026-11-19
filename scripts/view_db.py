@@ -1,3 +1,6 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 """
 CrowdSense — SQLite Database Viewer Helper
 Displays the schema and all saved analysis history records in a clean table format.
