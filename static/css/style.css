@@ -1906,15 +1906,36 @@ kbd {
 .print-report { display: none; }
 
 @media print {
-    body * { visibility: hidden; }
-    .print-report, .print-report * { visibility: visible; }
-    .print-report {
+    /* Ensure clean, unclipped print page */
+    html, body {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+    
+    /* Hide all main application panels during printing */
+    body > *:not(#printReport) {
+        display: none !important;
+    }
+
+    #printReport, .print-report {
         display: block !important;
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        padding: 2rem;
+        visibility: visible !important;
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 1.5rem !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+        box-sizing: border-box !important;
+    }
+
+    #printReport * {
+        visibility: visible !important;
     }
 }
 

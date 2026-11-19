@@ -109,3 +109,4 @@
 | `SCIENTIFIC_REPORT.md` | Modified | Updated metrics to match `metrics.json`, added CSRNet, TTA uncertainty, and empirical ablations |
 | `PRESENTATION_NOTES.md` | Created | 7-Slide presentation outline with speaking scripts and figure references |
 | `CHANGES.md` | Created | Comprehensive file ledger and changelog |
+

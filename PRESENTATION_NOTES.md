@@ -139,3 +139,4 @@ We maintain complete transparency regarding current limitations: dense-crowd sat
 ### 📊 Figures & Assets
 - **Roadmap Table:** MCNN (Current CPU Baseline) vs. CSRNet + Count Loss (Trained Candidate).
 - **Summary Metrics Checklist:** Verified in [results/metrics.json](file:///e:/AJ/my-ai-project-main%20(3)/my-ai-project-main/results/metrics.json).
+
