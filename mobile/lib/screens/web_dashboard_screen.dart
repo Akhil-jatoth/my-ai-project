@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -16,6 +19,7 @@ class WebDashboardScreen extends StatefulWidget {
 class _WebDashboardScreenState extends State<WebDashboardScreen> {
   late final WebViewController _controller;
   final TextEditingController _urlInputController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
 
   String _currentUrl = "http://10.235.164.46:5000";
   bool _isLoading = true;
@@ -48,6 +52,12 @@ class _WebDashboardScreenState extends State<WebDashboardScreen> {
     _controller = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0F172A))
+      ..addJavaScriptChannel(
+        'FlutterDownloadBridge',
+        onMessageReceived: (JavaScriptMessage message) {
+          _handleDownloadedFile(message.message);
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
@@ -92,9 +102,189 @@ class _WebDashboardScreenState extends State<WebDashboardScreen> {
       final androidController = _controller.platform as AndroidWebViewController;
       AndroidWebViewController.enableDebugging(true);
       androidController.setMediaPlaybackRequiresUserGesture(false);
+      androidController.setAllowFileAccess(true);
+      androidController.setAllowContentAccess(true);
+      androidController.setGeolocationEnabled(true);
       androidController.setOnPlatformPermissionRequest((request) {
         request.grant();
       });
+      androidController.setOnShowFileSelector((FileSelectorParams params) async {
+        return await _handleFileSelection(params);
+      });
+    }
+  }
+
+  Future<List<String>> _handleFileSelection(FileSelectorParams params) async {
+    try {
+      final isVideo = params.acceptTypes.any((t) => t.toLowerCase().contains('video'));
+      if (isVideo) {
+        final XFile? video = await _imagePicker.pickVideo(source: ImageSource.gallery);
+        if (video != null) {
+          return [Uri.file(video.path).toString()];
+        }
+        return <String>[];
+      }
+
+      // If capture requested directly (e.g. capture="environment" or camera input)
+      if (params.isCaptureEnabled) {
+        final XFile? photo = await _imagePicker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 95,
+        );
+        if (photo != null) {
+          return [Uri.file(photo.path).toString()];
+        }
+        return <String>[];
+      }
+
+      // Present a choice bottom sheet: Camera vs Gallery / Photos / Drive
+      if (!mounted) return <String>[];
+      final ImageSource? source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: const Color(0xFF1E293B),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Text(
+                  "Select Image Source",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.camera_alt_rounded, color: AppTheme.accentCyan),
+                  ),
+                  title: const Text("Camera (Take Photo)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  subtitle: const Text("Capture live photo with phone camera", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+                ),
+                const Divider(color: Colors.white10),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7C3AED).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.photo_library_rounded, color: Color(0xFFA855F7)),
+                  ),
+                  title: const Text("Photos & Files (Drive / Gallery)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  subtitle: const Text("Choose from Photos, Google Drive, or Downloads", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      if (source == null) return <String>[];
+
+      final XFile? file = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 95,
+      );
+
+      if (file != null) {
+        return [Uri.file(file.path).toString()];
+      }
+    } catch (e) {
+      debugPrint("File selection error: $e");
+    }
+    return <String>[];
+  }
+
+  Future<void> _handleDownloadedFile(String jsonStr) async {
+    try {
+      final data = jsonDecode(jsonStr);
+      final String filename = data['filename'] ?? 'report-${DateTime.now().millisecondsSinceEpoch}.json';
+      final String content = data['content'] ?? '';
+      final bool isBase64 = data['isBase64'] ?? false;
+
+      // Attempt to save to public Downloads directory
+      Directory? targetDir;
+      if (Platform.isAndroid) {
+        final downloadDir = Directory('/storage/emulated/0/Download');
+        if (await downloadDir.exists()) {
+          targetDir = downloadDir;
+        }
+      }
+
+      if (targetDir == null) {
+        // Fallback to external cache or app documents
+        targetDir = Directory('/sdcard/Download');
+        if (!await targetDir.exists()) {
+          targetDir = Directory.systemTemp;
+        }
+      }
+
+      final File targetFile = File('${targetDir.path}/$filename');
+
+      if (isBase64) {
+        String rawBase64 = content;
+        if (rawBase64.contains(',')) {
+          rawBase64 = rawBase64.split(',')[1];
+        }
+        final bytes = base64Decode(rawBase64);
+        await targetFile.writeAsBytes(bytes);
+      } else {
+        await targetFile.writeAsString(content);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF059669),
+            duration: const Duration(seconds: 4),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    "Report downloaded:\n${targetFile.path}",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Download handling error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.criticalRisk,
+            content: Text("Error saving report: $e"),
+          ),
+        );
+      }
     }
   }
 
@@ -342,7 +532,7 @@ class _WebDashboardScreenState extends State<WebDashboardScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppTheme.criticalRisk.withOpacity(0.12),
+                  color: AppTheme.criticalRisk.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -399,14 +589,14 @@ class _WebDashboardScreenState extends State<WebDashboardScreen> {
                     TextField(
                       controller: _urlInputController,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'Server URL',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: Color(0xFF94A3B8)),
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
+                        fillColor: Color(0xFF0F172A),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFF475569)),
+                          borderRadius: BorderRadius.all(Radius.circular(8)),
+                          borderSide: BorderSide(color: Color(0xFF475569)),
                         ),
                       ),
                     ),

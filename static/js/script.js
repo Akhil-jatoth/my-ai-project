@@ -125,6 +125,22 @@ clearFileBtn.addEventListener('click', () => {
     clearFileInfo();
 });
 
+fileDropzone.addEventListener('click', (e) => {
+    if (e.target !== imageInput) {
+        imageInput.click();
+    }
+});
+
+const videoDropzone = document.getElementById('videoDropzone');
+if (videoDropzone) {
+    videoDropzone.addEventListener('click', (e) => {
+        const videoInput = document.getElementById('videoInput');
+        if (videoInput && e.target !== videoInput) {
+            videoInput.click();
+        }
+    });
+}
+
 fileDropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
     fileDropzone.classList.add('drag-over');
@@ -190,8 +206,29 @@ function formatFileSize(bytes) {
 }
 
 /* =====================================================
-   Webcam
+   Webcam & Mobile Camera
    ===================================================== */
+
+const mobileCameraInput = document.createElement('input');
+mobileCameraInput.type = 'file';
+mobileCameraInput.accept = 'image/*';
+mobileCameraInput.capture = 'environment';
+mobileCameraInput.style.position = 'absolute';
+mobileCameraInput.style.width = '1px';
+mobileCameraInput.style.height = '1px';
+mobileCameraInput.style.opacity = '0';
+mobileCameraInput.style.pointerEvents = 'none';
+document.body.appendChild(mobileCameraInput);
+
+mobileCameraInput.addEventListener('change', () => {
+    if (mobileCameraInput.files && mobileCameraInput.files.length > 0) {
+        selectedFile = mobileCameraInput.files[0];
+        displayFileInfo(selectedFile);
+        analyzeBtn.disabled = false;
+        hideError();
+        showToast('Camera photo captured successfully');
+    }
+});
 
 startWebcamBtn.addEventListener('click', toggleWebcam);
 captureBtn.addEventListener('click', captureFromWebcam);
@@ -199,6 +236,12 @@ captureBtn.addEventListener('click', captureFromWebcam);
 async function toggleWebcam() {
     if (webcamStream) {
         stopWebcam();
+        return;
+    }
+    // If navigator.mediaDevices is not available on this network origin (e.g. HTTP LAN IP), fallback to native mobile camera
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast('Opening mobile camera...');
+        mobileCameraInput.click();
         return;
     }
     try {
@@ -210,8 +253,10 @@ async function toggleWebcam() {
         webcamPlaceholder.classList.add('hidden');
         startWebcamBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Camera';
         captureBtn.disabled = false;
-    } catch {
-        showError('Camera access denied or unavailable.');
+    } catch (err) {
+        console.warn('WebRTC camera unavailable, launching device camera:', err);
+        showToast('Opening mobile camera...');
+        mobileCameraInput.click();
     }
 }
 
@@ -787,6 +832,23 @@ function resetForm() {
     stopWebcam();
 }
 
+function triggerDownload(filename, dataUriOrText, isBase64 = false) {
+    if (window.FlutterDownloadBridge) {
+        window.FlutterDownloadBridge.postMessage(JSON.stringify({
+            filename: filename,
+            content: dataUriOrText,
+            isBase64: isBase64
+        }));
+        return;
+    }
+    const link = document.createElement('a');
+    link.href = dataUriOrText;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
 downloadBtn.addEventListener('click', downloadResults);
 
 function downloadResults() {
@@ -807,19 +869,21 @@ function downloadResults() {
         processing_time: currentPrediction.processing_time
     };
 
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' }));
-    link.download = `crowd-analysis-${Date.now()}.json`;
-    link.click();
+    const jsonString = JSON.stringify(results, null, 2);
+    const filename = `crowd-analysis-${Date.now()}.json`;
+    if (window.FlutterDownloadBridge) {
+        triggerDownload(filename, jsonString, false);
+    } else {
+        const blobUrl = URL.createObjectURL(new Blob([jsonString], { type: 'application/json' }));
+        triggerDownload(filename, blobUrl, false);
+    }
     showToast('JSON report downloaded');
 }
 
 downloadHeatmapBtn.addEventListener('click', () => {
     if (!currentPrediction?.heatmap_image) { showError('No heatmap to save.'); return; }
-    const link = document.createElement('a');
-    link.href = currentPrediction.heatmap_image;
-    link.download = `heatmap-${Date.now()}.png`;
-    link.click();
+    const filename = `heatmap-${Date.now()}.png`;
+    triggerDownload(filename, currentPrediction.heatmap_image, true);
     showToast('Heatmap saved');
 });
 
