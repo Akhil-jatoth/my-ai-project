@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
-import 'home_screen.dart';
+import 'web_dashboard_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -55,7 +55,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        pageBuilder: (ctx, anim1, anim2) => const HomeScreen(),
+        pageBuilder: (ctx, anim1, anim2) => const WebDashboardScreen(),
         transitionsBuilder: (ctx, animation, anim2, child) {
           return FadeTransition(opacity: animation, child: child);
         },
