@@ -161,12 +161,136 @@ class MCNN(nn.Module):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CSRNet Neural Network Architecture (Alternative Deep Back-End)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class CSRNet(nn.Module):
+    """
+    CSRNet: Dilated Convolutional Neural Networks for Understanding the Highly Congested Scenes.
+    Reference: Li et al., CVPR 2018.
+
+    Front-end: First 10 convolutional layers of VGG-16 (conv1_1 through conv4_3).
+    Back-end: 6 dilated convolutional layers (dilation rate = 2) for multi-scale feature
+              extraction without resolution loss.
+    Output: 1x1 convolution followed by bilinear upsampling back to input spatial resolution.
+    """
+
+    def __init__(self, pretrained: bool = True):
+        super().__init__()
+        self.frontend = nn.Sequential(
+            # Conv block 1
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            # Conv block 2
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            # Conv block 3
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+            # Conv block 4
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+        self.backend = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=3, padding=2, dilation=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=2, dilation=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=2, dilation=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 256, kernel_size=3, padding=2, dilation=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 128, kernel_size=3, padding=2, dilation=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 64, kernel_size=3, padding=2, dilation=2),
+            nn.ReLU(inplace=True),
+        )
+
+        self.output_layer = nn.Conv2d(64, 1, kernel_size=1)
+
+        if pretrained:
+            self._load_vgg_pretrained()
+        else:
+            self._init_weights()
+
+    def _load_vgg_pretrained(self):
+        vgg = None
+        try:
+            from torchvision.models import vgg16, VGG16_Weights
+            vgg = vgg16(weights=VGG16_Weights.DEFAULT)
+        except Exception:
+            try:
+                from torchvision.models import vgg16
+                vgg = vgg16(pretrained=True)
+            except Exception:
+                vgg = None
+
+        if vgg is not None:
+            vgg_layers = list(vgg.features.children())
+            conv_idx = 0
+            for layer in vgg_layers[:23]:
+                if isinstance(layer, nn.Conv2d):
+                    # Match only Conv2d layers in frontend
+                    while conv_idx < len(self.frontend) and not isinstance(self.frontend[conv_idx], nn.Conv2d):
+                        conv_idx += 1
+                    if conv_idx < len(self.frontend):
+                        self.frontend[conv_idx].weight.data.copy_(layer.weight.data)
+                        if layer.bias is not None and self.frontend[conv_idx].bias is not None:
+                            self.frontend[conv_idx].bias.data.copy_(layer.bias.data)
+                        conv_idx += 1
+        else:
+            self._init_weights()
+
+        # Initialize backend weights with Gaussian N(0, 0.01)
+        for m in self.backend.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+        nn.init.normal_(self.output_layer.weight, std=0.01)
+        if self.output_layer.bias is not None:
+            nn.init.constant_(self.output_layer.bias, 0)
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h, w = x.size(2), x.size(3)
+        feat = self.frontend(x)
+        feat = self.backend(feat)
+        density = self.output_layer(feat)
+        density_map = F.interpolate(density, size=(h, w), mode='bilinear', align_corners=False)
+        return density_map
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Predictor Wrapper
 # ══════════════════════════════════════════════════════════════════════════════
 
 class CrowdDensityPredictor:
     """
-    High-level inference pipeline for MCNN model.
+    High-level inference pipeline for MCNN and CSRNet models.
+    Dynamically loads model architecture based on metadata or state_dict keys.
     Handles image preprocessing, tensor transformation, device management,
     model inference, and density-map validation.
     """
@@ -175,40 +299,62 @@ class CrowdDensityPredictor:
     _STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
     INPUT_W, INPUT_H = 640, 480
 
-    def __init__(self, weights_path: str = None, device: str = None):
+    def __init__(self, weights_path: str = None, device: str = None, model_name: str = None):
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device
         self.weights_path = weights_path
-
-        self.model = MCNN().float().to(device)
+        self.training_metadata = None
         self.weights_loaded = False
         self.trained_model  = False
-        self.training_metadata = None
 
+        inferred_arch = model_name
+
+        # 1. Check training metadata if present
+        meta_file = config.TRAINING_META_PATH
+        if os.path.exists(meta_file):
+            try:
+                with open(meta_file, 'r', encoding='utf-8') as mf:
+                    self.training_metadata = json.load(mf)
+                    if not inferred_arch:
+                        inferred_arch = self.training_metadata.get("model_name") or self.training_metadata.get("model_architecture")
+            except Exception:
+                pass
+
+        # 2. Check state dict keys if weights exist
+        state_dict = None
         if weights_path and os.path.exists(weights_path):
             try:
                 state_dict = torch.load(weights_path, map_location=device)
+                if not inferred_arch and isinstance(state_dict, dict):
+                    if any(k.startswith('frontend') or k.startswith('backend') for k in state_dict.keys()):
+                        inferred_arch = 'CSRNet'
+                    elif any(k.startswith('col1') for k in state_dict.keys()):
+                        inferred_arch = 'MCNN'
+            except Exception as e:
+                print(f"[Predictor] Warning reading weights file '{weights_path}': {e}")
+
+        arch_str = (inferred_arch or 'MCNN').upper()
+        if 'CSR' in arch_str:
+            self.model_name = 'CSRNet'
+            self.model = CSRNet(pretrained=False).float().to(device)
+        else:
+            self.model_name = 'MCNN'
+            self.model = MCNN().float().to(device)
+
+        if state_dict is not None:
+            try:
                 self.model.load_state_dict(state_dict)
                 self.weights_loaded = True
                 self.trained_model  = True
-                print(f"[MCNN] Trained weights successfully loaded from '{weights_path}' (device={device})")
-
-                # Try loading training metadata if available
-                meta_file = config.TRAINING_META_PATH
-                if os.path.exists(meta_file):
-                    try:
-                        with open(meta_file, 'r', encoding='utf-8') as mf:
-                            self.training_metadata = json.load(mf)
-                    except Exception:
-                        pass
+                print(f"[{self.model_name}] Trained weights successfully loaded from '{weights_path}' (device={device})")
             except Exception as exc:
-                print(f"[MCNN] ERROR: Failed loading weights '{weights_path}': {exc}")
-                print("[MCNN] Falling back to Demo/Fallback Mode.")
+                print(f"[{self.model_name}] ERROR: Failed loading weights '{weights_path}': {exc}")
+                print(f"[{self.model_name}] Falling back to Demo/Fallback Mode.")
         else:
             if weights_path:
-                print(f"[MCNN] Weights file not found: '{weights_path}'")
-            print("[MCNN] Running in Demo/Fallback Mode (weights unavailable).")
+                print(f"[{self.model_name}] Weights file not found: '{weights_path}'")
+            print(f"[{self.model_name}] Running in Demo/Fallback Mode (weights unavailable).")
 
         self.model.eval()
 
@@ -219,7 +365,7 @@ class CrowdDensityPredictor:
     @property
     def status(self) -> dict:
         status_dict = {
-            "model_name":     config.MODEL_NAME,
+            "model_name":     self.model_name,
             "model_version":  config.MODEL_VERSION,
             "weights_loaded": self.weights_loaded,
             "trained_model":  self.trained_model,
@@ -231,7 +377,7 @@ class CrowdDensityPredictor:
 
     def preprocess_image(self, image_path: str):
         """
-        Load and normalize image to float32 tensor suitable for MCNN.
+        Load and normalize image to float32 tensor suitable for crowd density models.
         Returns:
             tensor: torch.Tensor of shape (1, 3, 480, 640) float32
             pil_image: PIL RGB image
@@ -278,6 +424,7 @@ class CrowdDensityPredictor:
             'density_map':     density,
             'original_image':  pil_img,
             'mode':            self.mode,
+            'model_name':      self.model_name,
             'map_is_valid':    is_valid,
             'validation_msg':  msg,
         }

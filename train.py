@@ -51,7 +51,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import config
-from model.crowd_model import MCNN
+from model.crowd_model import MCNN, CSRNet
 
 logging.basicConfig(
     level=logging.INFO,
@@ -432,6 +432,30 @@ class EuclideanLoss(nn.Module):
         return torch.sum((pred - target) ** 2) / (2.0 * pred.size(0))
 
 
+class CombinedCountEuclideanLoss(nn.Module):
+    """
+    Combined Density Euclidean Loss + Count-Aware Auxiliary L1 Loss.
+    Reduces the systematic underestimation of high-density crowds by penalizing
+    discrepancies between total predicted headcount and total ground-truth headcount.
+
+    L = L_density + lambda_count * L_count
+    where:
+      L_density = (1 / 2N) * sum || F(X_i) - D_i ||_2^2
+      L_count   = (1 / N) * sum | sum(F(X_i)) - sum(D_i) |
+    """
+    def __init__(self, count_weight: float = 0.01):
+        super().__init__()
+        self.count_weight = count_weight
+        self.euclidean = EuclideanLoss()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        loss_density = self.euclidean(pred, target)
+        pred_counts = torch.clamp(pred, min=0.0).sum(dim=(1, 2, 3))
+        target_counts = target.sum(dim=(1, 2, 3))
+        loss_count = torch.mean(torch.abs(pred_counts - target_counts))
+        return loss_density + self.count_weight * loss_count
+
+
 def evaluate_loader(model: nn.Module, loader: DataLoader, device: str) -> dict:
     """Evaluate MAE, RMSE, and validation loss on DataLoader with detailed prediction metrics."""
     model.eval()
@@ -602,10 +626,17 @@ def train(args):
     val_loader   = DataLoader(val_ds,   batch_size=args.batch_size,
                               shuffle=False, num_workers=args.workers, pin_memory=True)
 
-    # Initialize MCNN
-    model = MCNN().float().to(device)
+    # Initialize Model (MCNN or CSRNet)
+    model_arch = getattr(args, 'model', 'mcnn').lower()
+    if model_arch == 'csrnet':
+        model = CSRNet(pretrained=True).float().to(device)
+        model_name = "CSRNet"
+    else:
+        model = MCNN().float().to(device)
+        model_name = "MCNN"
+
     param_count = sum(p.numel() for p in model.parameters())
-    log.info(f"MCNN Parameter count: {param_count:,}")
+    log.info(f"{model_name} initialized on {device} | Parameter count: {param_count:,}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -622,7 +653,10 @@ def train(args):
         log.info(f"LR Scheduler: StepLR (step_size={args.lr_step}, gamma={args.lr_gamma})")
     
     loss_fn_name = getattr(args, 'loss', 'euclidean')
-    if loss_fn_name == 'euclidean':
+    if loss_fn_name == 'euclidean+count':
+        criterion = CombinedCountEuclideanLoss(count_weight=args.count_loss_weight)
+        log.info(f"Loss function: Combined Density Euclidean + Auxiliary Count L1 (weight={args.count_loss_weight})")
+    elif loss_fn_name == 'euclidean':
         criterion = EuclideanLoss()
         log.info("Loss function: Euclidean Density Loss (Zhang et al. CVPR 2016 Eq. 1)")
     else:
@@ -741,7 +775,8 @@ def train(args):
 
     # Save training metadata JSON for complete provenance
     metadata = {
-        "model_name": config.MODEL_NAME,
+        "model_name": model_name,
+        "model_architecture": model_name,
         "model_version": config.MODEL_VERSION,
         "dataset": args.dataset,
         "part": args.part if args.dataset == 'shanghaitech' else None,
@@ -763,6 +798,7 @@ def train(args):
         "fold": getattr(args, 'fold', 0),
         "full_train": getattr(args, 'full_train', False),
         "loss_function": loss_fn_name,
+        "count_loss_weight": getattr(args, 'count_loss_weight', 0.01) if loss_fn_name == 'euclidean+count' else None,
         "train_samples": len(train_ds),
         "val_samples": len(val_ds),
         "official_test_samples": 182,
@@ -781,10 +817,11 @@ def train(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train CrowdSense MCNN')
+    parser = argparse.ArgumentParser(description='Train CrowdSense MCNN / CSRNet')
     parser.add_argument('--dataset', choices=['shanghaitech', 'ucf'], required=True)
     parser.add_argument('--part', default='A', choices=['A', 'B'])
     parser.add_argument('--data-root', required=True)
+    parser.add_argument('--model', choices=['mcnn', 'csrnet'], default='mcnn', help='Model architecture')
     parser.add_argument('--epochs',       type=int,   default=100)
     parser.add_argument('--batch-size',   type=int,   default=4)
     parser.add_argument('--lr',           type=float, default=1e-4)
@@ -801,7 +838,8 @@ if __name__ == '__main__':
     parser.add_argument('--full-train',   action='store_true',      help='Train on all training images without split')
     parser.add_argument('--workers',      type=int,   default=0)
     parser.add_argument('--crop-size',   type=int,   default=256, help='Crop size for training patches (0 for full images)')
-    parser.add_argument('--loss',        choices=['euclidean', 'mse'], default='euclidean', help='Loss function')
+    parser.add_argument('--loss',        choices=['euclidean', 'mse', 'euclidean+count'], default='euclidean', help='Loss function')
+    parser.add_argument('--count-loss-weight', type=float, default=0.01, help='Weight for auxiliary count loss')
     parser.add_argument('--seed',         type=int,   default=config.RANDOM_SEED)
     args = parser.parse_args()
     train(args)

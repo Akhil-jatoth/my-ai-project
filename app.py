@@ -157,7 +157,8 @@ try:
         device='cuda' if torch.cuda.is_available() else 'cpu',
     )
     PYTORCH_AVAILABLE = True
-    log.info(f"MCNN Predictor: mode={predictor.mode} | device={predictor.device} | weights_loaded={predictor.weights_loaded}")
+    model_name = getattr(predictor, 'model_name', 'MCNN')
+    log.info(f"{model_name} Predictor: mode={predictor.mode} | device={predictor.device} | weights_loaded={predictor.weights_loaded}")
 
 except ImportError:
     predictor = None
@@ -653,10 +654,11 @@ def predict():
             crowd_count = result['count']
             raw_count   = result['raw_count']
             mode        = 'trained'
+            arch_name = predictor.model_name if predictor else 'MCNN'
             model_info  = {
-                "name": config.MODEL_NAME,
+                "name": arch_name,
                 "version": config.MODEL_VERSION,
-                "type": "Neural Network (MCNN)",
+                "type": f"Neural Network ({arch_name})",
                 "weights_loaded": True,
                 "device": predictor.device
             }
@@ -853,15 +855,16 @@ def health():
     except Exception:
         db_status = 'error'
 
+    model_arch = model_status.get('model_name', 'MCNN')
     weights_loaded = model_status['weights_loaded']
     eval_exists = os.path.exists(config.EVALUATION_METRICS_PATH)
     if weights_loaded:
         if eval_exists:
-            validation_status = "MCNN — Trained & Evaluated"
+            validation_status = f"{model_arch} — Trained & Evaluated"
         else:
-            validation_status = "MCNN — Trained / Evaluation pending"
+            validation_status = f"{model_arch} — Trained / Evaluation pending"
     else:
-        validation_status = "MCNN — Weights unavailable"
+        validation_status = f"{model_arch} — Weights unavailable"
 
     return jsonify({
         'status':            'healthy',
@@ -935,9 +938,10 @@ def model_performance():
                 "error": f"Failed to read evaluation metrics file: {str(exc)}"
             }), 500
 
+    model_arch = getattr(predictor, 'model_name', config.MODEL_NAME) if predictor else config.MODEL_NAME
     return jsonify({
         "evaluated": False,
-        "model": config.MODEL_NAME,
+        "model": model_arch,
         "message": "Model evaluation has not been performed yet. Run python evaluate.py on a test dataset to generate verified MAE/RMSE metrics."
     })
 

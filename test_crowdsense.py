@@ -21,7 +21,9 @@ except AttributeError:
     pass
 
 import config
-from model.crowd_model import validate_density_map, MCNN
+import torch
+from model.crowd_model import validate_density_map, MCNN, CSRNet, CrowdDensityPredictor
+from train import CombinedCountEuclideanLoss
 from app import (
     app,
     generate_cv_fallback_density,
@@ -131,6 +133,29 @@ class TestCrowdSenseCore(unittest.TestCase):
         self.assertIn("bbox", zones[0])
         self.assertIn("relative_density", zones[0])
         self.assertIn("severity", zones[0])
+
+    def test_csrnet_architecture_and_combined_loss(self):
+        """Phase 2: CSRNet forward pass and count-aware auxiliary loss."""
+        model = CSRNet(pretrained=False).float()
+        dummy_in = torch.randn(1, 3, 128, 128)
+        pred = model(dummy_in)
+        self.assertEqual(pred.shape, (1, 1, 128, 128))
+
+        criterion = CombinedCountEuclideanLoss(count_weight=0.01)
+        target = torch.full((1, 1, 128, 128), 0.05)
+        loss = criterion(pred, target)
+        self.assertFalse(torch.isnan(loss).any())
+        self.assertGreater(float(loss.item()), 0.0)
+
+    def test_predictor_dynamic_arch(self):
+        """Phase 2: Predictor dynamically switches between MCNN and CSRNet."""
+        pred_mcnn = CrowdDensityPredictor(model_name='MCNN')
+        self.assertEqual(pred_mcnn.model_name, 'MCNN')
+        self.assertIsInstance(pred_mcnn.model, MCNN)
+
+        pred_csrnet = CrowdDensityPredictor(model_name='CSRNet')
+        self.assertEqual(pred_csrnet.model_name, 'CSRNet')
+        self.assertIsInstance(pred_csrnet.model, CSRNet)
 
 
 class TestCrowdSenseAPI(unittest.TestCase):
