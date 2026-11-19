@@ -1,0 +1,41 @@
+# ── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# ── IDE ─────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Project-specific ────────────────────────────────────────────────────
+.pytest_cache/
+backup_phase1/
+# Uploaded & generated images (user data)
+static/uploads/*
+!static/uploads/.gitkeep
+static/outputs/*
+!static/outputs/.gitkeep
+
+# Trained model weights (large binary; retrain locally)
+model/weights.pth
+model/train_log.txt
+
+# SQLite database (local history)
+crowdsense.db
+
+# Dataset files (download separately — see data/README.md)
+data/ShanghaiTech/
+data/UCF_CC_50/

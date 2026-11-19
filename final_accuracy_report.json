@@ -1,0 +1,110 @@
+{
+  "dataset": "ShanghaiTech Part A",
+  "training_images": 270,
+  "validation_images": 30,
+  "test_images": 182,
+  "best_checkpoint": "C:\\Users\\abhignya\\Downloads\\my-ai-project-main\\my-ai-project-main\\model\\weights.pth",
+  "best_epoch": 36,
+  "best_validation_mae": 235.616,
+  "best_validation_rmse": 422.955,
+  "test_mae": 205.83,
+  "test_rmse": 302.98,
+  "median_absolute_error": 139.92,
+  "mean_ground_truth": 431.64,
+  "mean_prediction": 369.19,
+  "min_prediction": 63.4,
+  "max_prediction": 898.7,
+  "min_error": 1.64,
+  "max_error": 1448.4,
+  "zero_near_zero_predictions": 0,
+  "valid_predictions": 182,
+  "pearson_correlation": 0.5515,
+  "baseline_mae": 303.5,
+  "baseline_rmse": 368.69,
+  "total_evaluation_time_sec": 79.93,
+  "best_5_predictions": [
+    {
+      "image": "IMG_28.jpg",
+      "ground_truth": 423.0,
+      "prediction": 424.64,
+      "absolute_error": 1.64,
+      "squared_error": 2.7,
+      "percentage_error": 0.39
+    },
+    {
+      "image": "IMG_80.jpg",
+      "ground_truth": 156.02,
+      "prediction": 153.57,
+      "absolute_error": 2.45,
+      "squared_error": 6.01,
+      "percentage_error": 1.57
+    },
+    {
+      "image": "IMG_34.jpg",
+      "ground_truth": 88.35,
+      "prediction": 91.82,
+      "absolute_error": 3.47,
+      "squared_error": 12.05,
+      "percentage_error": 3.93
+    },
+    {
+      "image": "IMG_31.jpg",
+      "ground_truth": 248.8,
+      "prediction": 257.18,
+      "absolute_error": 8.39,
+      "squared_error": 70.35,
+      "percentage_error": 3.37
+    },
+    {
+      "image": "IMG_135.jpg",
+      "ground_truth": 71.95,
+      "prediction": 63.4,
+      "absolute_error": 8.56,
+      "squared_error": 73.23,
+      "percentage_error": 11.89
+    }
+  ],
+  "worst_5_predictions": [
+    {
+      "image": "IMG_117.jpg",
+      "ground_truth": 1591.47,
+      "prediction": 831.52,
+      "absolute_error": 759.95,
+      "squared_error": 577522.63,
+      "percentage_error": 47.75
+    },
+    {
+      "image": "IMG_8.jpg",
+      "ground_truth": 1323.27,
+      "prediction": 441.79,
+      "absolute_error": 881.49,
+      "squared_error": 777016.91,
+      "percentage_error": 66.61
+    },
+    {
+      "image": "IMG_36.jpg",
+      "ground_truth": 1265.1,
+      "prediction": 325.69,
+      "absolute_error": 939.41,
+      "squared_error": 882497.18,
+      "percentage_error": 74.26
+    },
+    {
+      "image": "IMG_165.jpg",
+      "ground_truth": 1579.61,
+      "prediction": 254.91,
+      "absolute_error": 1324.7,
+      "squared_error": 1754833.92,
+      "percentage_error": 83.86
+    },
+    {
+      "image": "IMG_90.jpg",
+      "ground_truth": 2243.88,
+      "prediction": 795.48,
+      "absolute_error": 1448.4,
+      "squared_error": 2097859.09,
+      "percentage_error": 64.55
+    }
+  ],
+  "evaluated_timestamp": "2026-10-31T10:38:25"
+}

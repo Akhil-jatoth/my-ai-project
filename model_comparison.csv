@@ -1,0 +1,6 @@
+image,ground_truth,MCNN_prediction,MCNN_absolute_error,CV_prediction,CV_absolute_error
+IMG_1.jpg,172.0,873,701.0,1024,852.0
+IMG_10.jpg,502.0,1127,625.0,1292,790.0
+IMG_25.jpg,243.0,88,155.0,915,672.0
+IMG_50.jpg,997.0,3,994.0,1605,608.0
+IMG_100.jpg,389.0,128,261.0,713,324.0
