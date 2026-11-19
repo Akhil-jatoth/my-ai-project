@@ -123,4 +123,5 @@
 | `CHANGES.md` | Created | Comprehensive file ledger and changelog |
 | `model/weights.pth` | Generated & Tracked | 529.5 KB MCNN baseline model weights for instant TRAINED mode execution |
 | `scripts/train_baseline_weights.py` | Created | Standalone reproducible script for generating functional baseline weights |
+| `mobile/` | Created | Cross-platform Flutter & Dart mobile application with Camera/Gallery scanner, interactive heatmap slider, ROI zone counter, video analytics, and custom app logo |
 
