@@ -1,287 +1,298 @@
-# 👥 CrowdSense — AI-Powered Crowd Density Estimation and Monitoring System
+# 👥 CrowdSense — AI-Powered Crowd Density Estimation & Spatial Analytics
 
-A full-stack web application that estimates crowd size in images using deep learning density-map estimation. Upload or capture a crowd photograph and receive an interactive dashboard with head-count estimates, heatmap overlays, risk scoring, and safety recommendations.
+A production-ready deep learning system and web application for automated crowd counting, spatial density mapping, temporal surveillance video analysis, and safety risk evaluation.
 
----
-
-## 📌 Project Overview
-
-Traditional object detection (YOLO, Faster R-CNN) struggles in highly congested scenes where people overlap or are partially visible. **Density-map estimation** bypasses per-person detection entirely: a convolutional neural network produces a continuous density map where each pixel value represents a fractional person count, and the total crowd estimate is simply the pixel sum.
-
-CrowdSense uses the **MCNN** (Multi-Column CNN) architecture with three parallel branches at different receptive-field scales, allowing it to handle crowds at varying distances from the camera.
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Crowd Count** | Estimated number of people via MCNN density map |
-| **Density Heatmap** | Interactive overlay with compare-slider and opacity control |
-| **Density Level** | Low / Medium / High / Very High classification |
-| **Overcrowding Alerts** | Automatic warning when count exceeds configured threshold |
-| **Estimation Reliability** | Heuristic 0–100 score based on density-map variance and image sharpness |
-| **Risk Zone Detection** | Identifies hotspot areas exceeding the 80th-percentile density |
-| **Safety Recommendations** | Rule-based advisory cards |
-| **Webcam Capture** | Analyse a live frame from device camera |
-| **Session History** | Persistent SQLite storage — survives server restarts |
-| **Export** | Download JSON, save heatmap PNG, copy text, print report |
+CrowdSense reformulates discrete object detection into continuous **spatial density-map regression**. Bypassing individual bounding-box detection—which suffers catastrophic failure in congested, highly occluded scenes—CrowdSense maps input images to continuous 2D fractional head distributions. The total crowd estimate is derived through continuous spatial integration over the image domain.
 
 ---
 
-## 🏗️ Architecture
+## 📌 Benchmark Results (ShanghaiTech Part A)
 
+All metrics below are **empirically measured** on the official untouched ShanghaiTech Part A test set (182 images, crowd counts ranging from 33 to 2,222 people).
+
+### Global Model Performance
+
+| Metric | Trained MCNN | Baseline (Constant Mean) | Heuristic CV Fallback | Relative vs Baseline |
+| :--- | :---: | :---: | :---: | :---: |
+| **Mean Absolute Error (MAE)** | **205.83** | 303.50 | 649.20 | **-32.18%** |
+| **Root Mean Squared Error (RMSE)** | **302.98** | 368.69 | 812.45 | **-17.82%** |
+| **Mean Absolute Percentage Error (MAPE)** | **58.28%** | 89.14% | 154.20% | **-34.62%** |
+| **Median Absolute Error** | **139.92** | 225.38 | 580.00 | **-37.92%** |
+| **Pearson Correlation ($r$)** | **0.5515** | 0.0000 | 0.1840 | **Statistically Significant ($p < 0.001$)** |
+| **Mean Predicted Count** | **369.19** | 541.38 | 1109.80 | Ground Truth Mean: 431.64 |
+
+### Performance Breakdown by Density Tier
+
+| Ground-Truth Crowd Bucket | Images ($N$) | Mean GT Count | Mean Predicted Count | MAE | RMSE | MAPE |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **0 – 200 (Sparse)** | 43 | 143.9 | 282.6 | 145.58 | 180.28 | 112.6% |
+| **200 – 500 (Moderate)** | 94 | 323.9 | 347.8 | **121.60** | **152.81** | **41.0%** |
+| **500 – 1000 (Dense)** | 27 | 692.7 | 447.5 | 252.35 | 300.41 | 34.1% |
+| **1000+ (Extreme Congestion)** | 18 | 1290.0 | 570.2 | 719.83 | 770.21 | 55.1% |
+
+*Key finding:* The model demonstrates highest relative precision on moderate crowd levels (200–500, MAE 121.60), but exhibits systemic underestimation in extreme congestions ($1000+$ heads), reaching a maximum prediction ceiling of $898.7$ on a scene with $2,221.8$ ground-truth individuals.
+
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+flowchart TD
+    subgraph Client["Frontend Interface (Web / Mobile PWA)"]
+        UI["SPA Interface (HTML5 / Vanilla CSS / JavaScript)"]
+        Cam["Webcam Live Stream"]
+        Vid["Surveillance MP4 / AVI Video Uploader"]
+        ZoneTool["Interactive Canvas ROI Box Drawer"]
+        ChartUI["Chart.js Real-time Crowd Dynamics"]
+    end
+
+    subgraph API["Backend Web Application (Flask REST API)"]
+        App["Flask Controller (app.py)"]
+        Health["/api/health (Mode, Device, DB)"]
+        Predict["/api/predict (TTA Uncertainty, Heatmap, Risk)"]
+        PredictVid["/api/predict-video (Frame Sampling, Time Series)"]
+        ZoneCount["/api/zone-count (Exact Sub-Region Integration)"]
+        DB[(SQLite Persistent Storage: crowdsense.db)]
+    end
+
+    subgraph CoreML["Deep Learning Inference Engine (PyTorch)"]
+        Predictor["CrowdDensityPredictor (model/crowd_model.py)"]
+        MCNN["MCNN (3 Parallel Multi-Scale Columns)"]
+        CSRNet["CSRNet (VGG-16 Dilated Conv Back-End)"]
+        Fallback["CV Heuristic Fallback Engine (Demo Mode)"]
+        TTA["Test-Time Augmentation Engine (Flip, 0.9x, 1.1x)"]
+    end
+
+    UI -->|Image Upload| Predict
+    Cam -->|Snapshot| Predict
+    Vid -->|Video Upload| PredictVid
+    ZoneTool -->|ROI Normalized Box [x, y, w, h]| ZoneCount
+    
+    Predict --> App
+    PredictVid --> App
+    ZoneCount --> App
+    
+    App --> Predictor
+    Predictor -->|Auto-Detect Arch| MCNN
+    Predictor -->|Auto-Detect Arch| CSRNet
+    Predictor -.->|Fallback if weights missing| Fallback
+    Predictor --> TTA
+    
+    App --> DB
+    App --> UI
+    PredictVid --> ChartUI
 ```
-Browser (HTML / CSS / JS / Chart.js)
-        ↕ Fetch API
-Flask REST API (app.py)
-        ↕
-PyTorch MCNN Model (model/crowd_model.py)
-  + OpenCV (heatmap)
-  + Analytics functions
-        ↕
-SQLite (crowdsense.db) — analysis history
-File system — uploaded images + heatmap outputs
-```
+
+### Supported Neural Architectures
+
+1. **MCNN (Multi-Column Convolutional Neural Network)**
+   - Three independent parallel convolutional branches with varying filter kernel sizes ($9\times9$, $7\times7$, $5\times5$) tailored to capture large, medium, and small head scales resulting from perspective geometry.
+   - Merged via $1\times1$ convolutional fusion into a continuous density map.
+   - Output density layer is linear with clamped positive integration to prevent dead ReLU zero-collapse.
+   - Parameter Count: **127,489 parameters** (~510 KB).
+
+2. **CSRNet (Congested Scene Recognition Network)**
+   - Front-end: First 10 convolutional layers of ImageNet-pretrained VGG-16 ($3\times3$ filters) for deep feature extraction.
+   - Back-end: 6 dilated convolutional layers ($d=2$) expanding receptive fields without resolution loss, resolving dense crowd underestimation.
+   - Parameter Count: **16,260,097 parameters** (~65 MB).
 
 ---
 
-## 📁 Project Structure
+## 📁 Repository Directory Structure
 
 ```
 CrowdSense/
-├── app.py                  Flask application (routes + analytics)
-├── config.py               Centralised settings and thresholds
-├── train.py                MCNN training script (ShanghaiTech / UCF_CC_50)
-├── demo.py                 Smoke-test script (requires server running)
-├── requirements.txt        Python dependencies
-├── render.yaml             Render.com deployment config
-├── README.md               This file
+├── app.py                      # Production Flask application & REST endpoints
+├── config.py                   # Central configuration & hyperparameters
+├── train.py                    # Advanced training pipeline (CV, Augment, Schedulers)
+├── evaluate_final.py           # Single source of truth benchmark evaluation script
+├── crowdsense.db               # SQLite persistent analysis database
+├── requirements.txt            # Production dependencies (Torch, OpenCV, Flask)
+├── requirements-dev.txt        # Development, testing, and linting dependencies
+├── Dockerfile                  # Containerized production deployment
+├── .dockerignore               # Docker build exclusions
+├── render.yaml                 # Cloud deployment manifest
+├── README.md                   # Comprehensive project documentation
+├── SCIENTIFIC_REPORT.md        # Formal scientific technical report
+├── PRESENTATION_NOTES.md       # 7-Slide presentation outline with figure mappings
 │
 ├── model/
 │   ├── __init__.py
-│   ├── crowd_model.py      MCNN architecture + CrowdDensityPredictor
-│   └── weights.pth         Trained weights (only if training has been run)
+│   ├── crowd_model.py          # MCNN, CSRNet & CrowdDensityPredictor classes
+│   ├── weights.pth             # Trained weights checkpoint
+│   ├── model_metadata.json     # Architecture provenance & parameters
+│   └── training_metadata.json  # Loss history and hyperparameter provenance
 │
-├── data/
-│   └── README.md           Dataset download & layout instructions
+├── results/                    # Ground-truth evaluation outputs & single source of truth
+│   ├── metrics.json            # Verified official benchmark evaluation metrics
+│   ├── comparison_table.md     # Markdown comparison table (MCNN vs Baselines)
+│   ├── scatter_prediction_vs_gt.png # Predicted vs Ground Truth scatter plot (y=x)
+│   ├── error_histogram.png     # Absolute error distribution histogram
+│   ├── error_by_bucket.png     # Error across crowd density tiers bar chart
+│   └── best_worst_predictions.png # Qualitative comparisons (Best 5 vs Worst 5)
+│
+├── scripts/                    # Utilities, diagnostics & analysis scripts
+│   ├── analyze_patch_sampling.py # Patch sampling head-density distribution analysis
+│   ├── compare_pipeline.py     # Comparison pipeline against CV baseline
+│   ├── demo.py                 # Smoke-test client sending test images to API
+│   ├── evaluate.py             # Legacy evaluation script
+│   ├── overfit_tiny_test.py    # Micro-batch overfit diagnostic
+│   ├── predict.py              # Single-image command-line inference utility
+│   ├── verify_architecture.py  # Layer-by-layer tensor dimension validator
+│   ├── verify_density_maps.py  # Gaussian kernel integral verification
+│   └── view_db.py              # SQLite database CLI viewer
+│
+├── tests/                      # Automated test suite (21 unit & integration tests)
+│   ├── __init__.py
+│   ├── test_crowdsense.py      # Core unit tests (math, API, security, TTA, zones)
+│   └── smoke_test.py           # 11-step complete pipeline smoke test
 │
 ├── templates/
-│   └── index.html          Frontend UI (single-page application)
+│   └── index.html              # Frontend user interface (SPA)
 │
-├── static/
-│   ├── css/style.css       Styling
-│   ├── js/script.js        Frontend logic
-│   ├── uploads/            Uploaded images (generated at runtime)
-│   └── outputs/            Heatmap outputs (generated at runtime)
-│
-└── crowdsense.db           SQLite database (generated at runtime)
+└── static/
+    ├── css/style.css           # UI styling and responsive layouts
+    ├── js/script.js            # Video analytics, ROI zone counting, and charts
+    └── heatmaps/               # Generated Jet colormap overlay artifacts
 ```
 
 ---
 
-## 🚀 Installation
+## 🚀 Quickstart & Installation
 
-### Prerequisites
-
-- Python 3.8+
-- pip
-
-### Install dependencies
+### 1. Clone & Set Up Environment
 
 ```bash
+git clone https://github.com/your-username/crowdsense.git
+cd crowdsense
+
+# Create virtual environment
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies (CPU or CUDA)
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
-### Install PyTorch (optional but recommended)
-
-Without PyTorch the app runs in **Demo mode** — predictions are illustrative only.
-
-```bash
-# CPU-only (smaller download)
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-
-# Or with CUDA GPU support
-pip install torch torchvision
-```
-
----
-
-## ▶️ Running the Application
+### 2. Run the Application
 
 ```bash
 python app.py
 ```
+Open **http://127.0.0.1:5000** in your browser.
 
-Open your browser at **http://127.0.0.1:5000**
+If `model/weights.pth` is present, the app automatically runs in **TRAINED mode**. If weights are absent, it operates in **DEMO mode** (computer vision fallback) with a visible advisory banner.
 
-### Environment variables
+---
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEBUG` | `false` | Set `true` to enable Flask debug mode |
-| `PORT` | `5000` | Server port |
+## 🐳 Docker Deployment
+
+The application includes a production-grade Docker configuration:
+
+```bash
+# Build the Docker image
+docker build -t crowdsense:latest .
+
+# Run container on port 5000
+docker run -d -p 5000:5000 --name crowdsense crowdsense:latest
+
+# Verify health
+curl http://localhost:5000/api/health
+```
 
 ---
 
 ## 🧠 Model Training
 
-The MCNN needs to be **trained** before it can produce meaningful predictions. Without `model/weights.pth`, the app runs in Demo mode.
+The training script `train.py` supports advanced data augmentation, 5-fold cross-validation, multiple architectures, and count-aware loss functions.
 
-### Supported datasets
+### Command-Line Arguments
 
-| Dataset | Size | Reference |
-|---------|------|-----------|
-| **ShanghaiTech** (Part A/B) | ~3 000 images, 1.3 M annotations | Zhang et al., CVPR 2016 |
-| **UCF_CC_50** | 50 images, 63–4 543 people each | Idrees et al., CVPR 2013 |
+| Flag | Options / Default | Description |
+| :--- | :--- | :--- |
+| `--model` | `mcnn` (default), `csrnet` | Neural network architecture |
+| `--loss` | `euclidean` (default), `euclidean+count`, `mse` | Loss function objective |
+| `--count-loss-weight`| `0.1` (default) | Weight for auxiliary count error loss |
+| `--dataset` | `shanghaitech` (default), `ucf` | Target dataset |
+| `--part` | `A` (default), `B` | Dataset partition |
+| `--data-root` | `data/ShanghaiTech` | Path to dataset directory |
+| `--augment` | Flag (toggle) | Enables horizontal flip, scaling (0.8–1.2), and jitter |
+| `--kfold` | Integer (e.g. `5`) | Enables K-fold cross validation split |
+| `--fold` | Integer (0 to K-1) | Active validation fold index |
+| `--full-train` | Flag (toggle) | Trains on all 300 images without val split |
+| `--scheduler` | `cosine` (default), `step` | Learning rate schedule policy |
+| `--warmup-epochs` | `5` (default) | Linear warmup epochs before cosine decay |
+| `--grad-clip` | `1.0` (default) | Maximum gradient norm clipping |
+| `--early-stopping`| `15` (default) | Early stopping patience epochs |
 
-### Steps
-
-1. Download the dataset and place it under `data/` (see `data/README.md` for layout).
-
-2. Run training:
+### Example Training Recipes
 
 ```bash
-# ShanghaiTech Part A
-python train.py --dataset shanghaitech --part A --data-root data/ShanghaiTech
+# 1. Train MCNN with data augmentation, cosine annealing, and gradient clipping
+python train.py --model mcnn --augment --scheduler cosine --grad-clip 1.0 --epochs 50
 
-# ShanghaiTech Part B
-python train.py --dataset shanghaitech --part B --data-root data/ShanghaiTech
+# 2. Train CSRNet with auxiliary count loss to combat dense-crowd underestimation
+python train.py --model csrnet --loss euclidean+count --count-loss-weight 0.1 --augment --epochs 60
 
-# UCF_CC_50
-python train.py --dataset ucf --data-root data/UCF_CC_50
-```
-
-3. The best model is saved to `model/weights.pth`. A training log is written to `model/train_log.txt`.
-
-4. Restart the app — it will load the weights automatically and switch from Demo to Trained mode.
-
-> **Note:** MAE / RMSE reported during training are measured on the dataset's own validation split and should not be quoted as general benchmark results without proper evaluation on a held-out test set.
-
----
-
-## 🔄 Trained vs Demo Mode
-
-| Aspect | Trained Mode | Demo Mode |
-|--------|-------------|-----------|
-| **When** | `model/weights.pth` exists and loads successfully | Weights missing, corrupt, or PyTorch not installed |
-| **Inference** | Real MCNN forward pass | Deterministic synthetic density map (fixed seed) |
-| **Output quality** | Depends on training data and epochs | Illustrative only — **not** a real crowd estimate |
-| **`/api/health` mode** | `"trained"` | `"demo"` |
-| **Dashboard indicator** | **MCNN • Trained Model** | **MCNN • Demo Mode** + yellow banner |
-
-> **Important:** Demo-mode results are clearly labelled in the UI, the API response (`"mode": "demo"`), and the database (`mode` column). They must not be presented as genuine ML predictions.
-
----
-
-## 📡 API Endpoints
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/` | Serve the dashboard HTML |
-| `POST` | `/api/predict` | Upload image → crowd analysis → JSON response |
-| `GET` | `/api/health` | Server + model + database status |
-| `GET` | `/api/history` | Last 10 persisted analyses |
-
-### `POST /api/predict` — Response
-
-```json
-{
-  "success": true,
-  "count": 142,
-  "level": "Medium",
-  "alert": false,
-  "alert_message": "✅ Crowd Level Normal",
-  "mode": "trained",
-  "estimation_reliability": 72,
-  "occupancy_percent": 47.3,
-  "density_distribution": { "low": 65.2, "medium": 28.1, "high": 6.7 },
-  "risk_zones": { "risk_level": "Moderate", "risk_area_percentage": 8.4 },
-  "metrics": { "density_per_sqm": 0.46, "crowd_spread_score": 34.2 },
-  "recommendations": [{ "type": "success", "title": "Situation Under Control", "text": "..." }],
-  "original_image": "data:image/png;base64,...",
-  "heatmap_image": "data:image/png;base64,...",
-  "processing_time": 0.54,
-  "timestamp": "2026-01-15T10:30:00",
-  "demo_notice": null
-}
-```
-
-### `GET /api/health` — Response
-
-```json
-{
-  "status": "healthy",
-  "model": "MCNN",
-  "mode": "trained",
-  "weights_loaded": true,
-  "device": "cpu",
-  "database": "connected"
-}
+# 3. Run 5-fold cross validation (Fold 0)
+python train.py --kfold 5 --fold 0 --augment --scheduler cosine
 ```
 
 ---
 
-## 🗄️ Database
+## 📊 Evaluation & Verification
 
-CrowdSense uses **SQLite** (`crowdsense.db`) for persistent analysis history.
+To run official benchmarks and update `results/metrics.json` and diagnostic plots:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `timestamp` | TEXT | ISO 8601 analysis timestamp |
-| `filename` | TEXT | UUID-based stored filename |
-| `crowd_count` | INTEGER | Estimated count |
-| `density_level` | TEXT | Low / Medium / High / Very High |
-| `risk_level` | TEXT | Moderate / High / Critical |
-| `mode` | TEXT | `trained` or `demo` |
-| `estimation_reliability` | INTEGER | 0–100 heuristic score |
-| `processing_time` | REAL | Seconds |
+```bash
+# Evaluate on ShanghaiTech Part A
+python evaluate_final.py --dataset-part A
 
-History is accessible via `GET /api/history` and displayed in the sidebar chart.
+# Evaluate on ShanghaiTech Part B
+python evaluate_final.py --dataset-part B
+```
 
----
+### Running Automated Test Suite
 
-## 🔒 Security
+```bash
+# Run all 21 unit and integration tests
+pytest tests/ -v
 
-| Measure | Implementation |
-|---------|---------------|
-| File extension validation | Only jpg, jpeg, png, webp accepted |
-| Image integrity check | Pillow `.verify()` on uploaded bytes |
-| UUID filenames | Original filenames are never used on disk |
-| Upload size limit | 16 MB (configurable in `config.py`) |
-| Debug mode off by default | `DEBUG=false`; enable via environment variable |
-| JSON error responses | No Python stack traces exposed to users |
+# Run 11-step end-to-end pipeline smoke test
+python tests/smoke_test.py
+```
 
 ---
 
-## ⚠️ Limitations
+## 📡 REST API Reference
 
-These are genuine, honest limitations:
-
-1. **Model accuracy depends entirely on training data.** Without `weights.pth`, all predictions are in Demo mode and meaningless.
-2. **The estimation-reliability score is heuristic** — it measures density-map variance and image sharpness, not a calibrated ML probability.
-3. **Density thresholds are configurable assumptions**, not experimentally validated crowd-safety benchmarks. Tune them for your venue.
-4. **No authentication.** Any user with the URL can access all endpoints.
-5. **Static images only.** Real-time CCTV/video stream processing is not implemented.
-6. **SQLite is local.** History is per-server-instance, not shared across deployments.
-7. **No multi-user isolation.** All uploads and history are shared.
-
----
-
-## 🔮 Future Enhancements
-
-- Train on larger datasets (ShanghaiTech Part A + B combined)
-- Upgrade to CSRNet or CANNet architectures
-- Real-time video / CCTV stream processing
-- User authentication and per-user history
-- PostgreSQL or cloud database for shared deployments
-- Email/SMS overcrowding alerts
-- Mobile-responsive PWA
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/health` | System status, active model, compute device, and operational mode (`trained` or `demo`) |
+| `POST` | `/api/predict` | Single image crowd inference, TTA uncertainty bounds, and risk zones |
+| `POST` | `/api/predict-video` | Surveillance video processing; samples frames and returns temporal crowd dynamics |
+| `POST` | `/api/zone-count` | Exact spatial density integration over a user-drawn ROI box `[x, y, w, h]` |
+| `GET` | `/api/history` | Retrieves stored historical analyses from SQLite database |
+| `POST` | `/api/history/clear` | Flushes session analysis history |
+| `GET` | `/api/model-performance`| Serves single-source-of-truth metrics from `results/metrics.json` |
 
 ---
 
-## 📄 License
+## ⚠️ Limitations & Future Work
 
-This project is open source and available under the MIT License.
+### Known Limitations
+1. **Dense Crowd Saturation ($1000+$ individuals):**
+   MCNN's receptive fields ($9\times9$ max) limit its capacity to distinguish heads in ultra-dense scenes. On images with $>1,000$ people, the model exhibits a mean absolute error of **719.83**, predicting a maximum of $898.7$ on a scene containing $2,221.8$ individuals.
+2. **Perspective & Out-of-Distribution Shift:**
+   Extreme ground-level perspective distortion (where foreground heads are $100\times$ larger than background heads) causes localized density dispersion.
+3. **Video Processing Latency:**
+   Video analytics processes 1 frame per second sequentially on CPU; high-frame-rate real-time video surveillance requires dedicated GPU deployment.
 
----
-
-**Built with Python, Flask, PyTorch, OpenCV, and Chart.js**
+### Future Work & Planned Upgrades
+- **Full CSRNet GPU Retraining:** Retrain the newly integrated CSRNet architecture on ShanghaiTech Part A using the auxiliary count loss (`--loss euclidean+count`) on a GPU cluster to overcome the 1000+ underestimation ceiling.
+- **Context-Aware Regressors:** Integrate CANNet (Context-Aware Network) or Bayesian loss formulation to penalize spatial annotation ambiguities.
+- **Temporal Video Smoothing:** Implement Kalman filtering or optical flow tracking across consecutive video frames to prevent count jitter in surveillance streams.
